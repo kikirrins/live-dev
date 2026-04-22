@@ -1,0 +1,6 @@
+// Switching to Babel so our livedev source-injection plugin runs.
+// Next.js automatically falls back to Babel when this file is present.
+module.exports = {
+  presets: ["next/babel"],
+  plugins: ["@live-dev/next/babel-plugin"],
+};

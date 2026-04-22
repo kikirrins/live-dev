@@ -1,0 +1,18 @@
+FROM node:20-alpine
+RUN npm install -g pnpm@9.12.0
+WORKDIR /repo
+
+# Install deps — source is volume-mounted at runtime
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./
+COPY packages/target-app/package.json ./packages/target-app/
+COPY packages/overlay/package.json ./packages/overlay/
+COPY packages/bridge/package.json ./packages/bridge/
+COPY packages/livedev-next/package.json ./packages/livedev-next/
+RUN pnpm install --frozen-lockfile
+
+EXPOSE 3000
+
+# 1. Build livedev-next so @live-dev/next resolves before next dev starts
+# 2. Start overlay esbuild watch (writes directly to target-app/public/) in background
+# 3. Start Next.js dev server in foreground
+CMD ["sh", "-c", "pnpm --filter livedev-next build; pnpm --filter overlay dev:target & exec pnpm --filter target-app dev"]

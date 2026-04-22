@@ -1,0 +1,34 @@
+# Live-Dev bridge — add this service to your project's docker-compose.yml
+# Run `pnpm dlx live-dev setup` (or node scripts/setup.ts) once to create the MC epic and write .env
+
+services:
+  livedev-bridge:
+    image: ghcr.io/sandpalace/livedev-bridge:latest
+    ports:
+      - "16001:16001"
+    environment:
+      MC_API_URL: http://host.docker.internal:3051
+      MC_API_KEY: ${MC_API_KEY}
+      MC_PROJECT_ID: ${MC_PROJECT_ID}
+      MC_EPIC_ID: ${MC_EPIC_ID}
+      REPO_PATH: /workspace
+    volumes:
+      - .:/workspace:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+# Then in your app's root layout (dev/staging only):
+#
+#   import { OverlayLoader } from "@live-dev/react"
+#   // or copy packages/overlay/src/index.ts and build it into your public/ dir
+#
+#   export default function RootLayout({ children }) {
+#     return (
+#       <html>
+#         <body>
+#           {children}
+#           <OverlayLoader bridgeUrl="http://localhost:16001" />
+#         </body>
+#       </html>
+#     )
+#   }

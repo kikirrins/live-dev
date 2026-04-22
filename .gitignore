@@ -1,0 +1,15 @@
+node_modules
+.next
+dist
+.turbo
+.DS_Store
+*.log
+.env
+.env.local
+.env.*.local
+coverage
+packages/bridge/data
+packages/bridge/logs
+.mcp.json
+.playwright-mcp/
+.claude/settings.local.json

@@ -1,0 +1,19 @@
+{
+  "name": "live-dev",
+  "private": true,
+  "version": "0.0.0",
+  "packageManager": "pnpm@9.12.0",
+  "scripts": {
+    "dev": "pnpm -r --parallel run dev",
+    "build": "pnpm -r run build",
+    "dev:target": "pnpm --filter target-app dev",
+    "dev:overlay": "pnpm --filter overlay dev",
+    "dev:backend": "pnpm --filter backend dev"
+  },
+  "engines": {
+    "node": ">=20.11.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}
