@@ -44,10 +44,19 @@ export function OverlayLoader({
     if (typeof window === "undefined") return;
     if ((window as any).__LIVEDEV_OVERLAY__) return;
 
-    const allowedUsers = parseAllowedUsers();
-    if (!isAllowed(userId ?? null, { allowedUsers })) {
-      console.debug("[livedev] overlay disabled: user not in whitelist");
-      return;
+    // Whitelist in the browser is a UX gate only (hides the toggle for
+    // non-admins). Server remains authoritative: POST /api/livedev/issues
+    // rejects non-whitelisted users with 403. The whitelist is inlined into
+    // the bundle only when LIVEDEV_EXPOSE_WHITELIST=true is set for the
+    // Next.js build — otherwise NEXT_PUBLIC_LIVEDEV_WHITELIST is unset and
+    // we skip the UX gate (every visitor sees the toggle; clicks are
+    // rejected server-side).
+    if (process.env.NEXT_PUBLIC_LIVEDEV_WHITELIST) {
+      const allowedUsers = parseAllowedUsers();
+      if (!isAllowed(userId ?? null, { allowedUsers })) {
+        console.debug("[livedev] overlay disabled: user not in whitelist");
+        return;
+      }
     }
 
     (window as any).__LIVEDEV_OVERLAY__ = true;

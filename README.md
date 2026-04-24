@@ -26,12 +26,14 @@ A working reference host lives in `modules/target-app`.
 The block below tells an AI agent what to copy and in what order. Each module carries a more detailed `INTEGRATION.md` with machine-readable host_changes, env_vars, and verification steps.
 
 ```agentic-rfp
-version: 1
+version: 2
 product: livedev
 summary: >
   Click-to-file GitHub issues from any page in a web app. Integrate as a
   fullstack package: browser bundle, host-side proxy route, and an issues
   service that holds the GitHub credential. The browser never holds a secret.
+  v2: host-proxy and issues-service expose typed factories; forgetting to
+  wire getUser/store fails at compile time, not runtime.
 modules:
   - id: overlay-client
     role: frontend
@@ -71,8 +73,10 @@ security_invariants:
   - "No GitHub credential in the browser or in any bundle reachable by the browser."
   - "Host-proxy authenticates the session using the host's existing auth, not a client-sent id."
   - "Issues-service verifies a shared service token in constant time before doing anything else."
-  - "Whitelist checks are authoritative on the server; any client-side check is UX only."
+  - "Whitelist checks are authoritative on the server; client-side whitelist exposure is opt-in via LIVEDEV_EXPOSE_WHITELIST."
   - "Screenshots are served only through a session-authenticated host route; no public or signed URLs."
+  - "Host-proxy and issues-service expose factories with required typed arguments (getUser, store, client); forgetting them fails at compile time."
+  - "Issues-service has no side effects on import — serve() runs only from src/main.ts, so the Hono app can be co-mounted inside any host backend."
 verification: modules/target-app/README.md
 ```
 

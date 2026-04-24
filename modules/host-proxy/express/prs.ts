@@ -1,22 +1,17 @@
 /**
- * Live-Dev host proxy — Express / Node handler for the PR dashboard.
+ * Live-Dev host proxy — Express PR dashboard handler reference.
  *
- * Mount at GET /api/livedev/prs in the host app. Replace `getSessionUser`
- * with the host's real auth.
- *
- * Env vars (host):
- *   LIVEDEV_PRS_URL         — e.g. https://livedev-issues.internal/prs
- *   LIVEDEV_SERVICE_TOKEN   — shared secret with the issues-service
+ * Mount at: router.get("/api/livedev/prs", handler)
+ * Replace getUser with your host's real session lookup.
  */
 
 import type { Request, Response } from "express";
 
-function getSessionUser(req: Request): { id: string } | null {
-  throw new Error("Replace getSessionUser with your host app's real session lookup");
-}
+// Replace with the host app's real session lookup.
+const getUser = (_req: Request): { id: string } | null => null as never;
 
 export async function livedevPRsHandler(req: Request, res: Response) {
-  const user = getSessionUser(req);
+  const user = await getUser(req);
   if (!user) {
     res.status(401).json({ error: "unauthenticated" });
     return;

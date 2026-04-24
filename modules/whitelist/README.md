@@ -10,9 +10,9 @@ Shared helpers and JSON Schema for `livedev.whitelist.json` — the file that de
 }
 ```
 
-- **Host-app identity, not GitHub identity.** The value is whatever the host already uses to mark a user (email, uuid, clerk id).
+- **Host-app identity, not GitHub identity.** The value is whatever the host already uses as the user's canonical id (email, uuid, clerk id). Throughout the integration APIs this value is passed as `{ id: string }` — the literal shape `email` is just one valid example, not the required key.
 - **Fail-closed.** Empty or missing array → nobody allowed.
-- **Two checks.** Host-proxy enforces it authoritatively server-side; overlay-client performs a UX-only pre-check to avoid injecting the script for non-admin sessions.
+- **Server-authoritative.** The host-proxy enforces the whitelist on every request; the overlay-client performs an **opt-in** UX-only pre-check gated by `LIVEDEV_EXPOSE_WHITELIST=true` (see `modules/overlay-client/INTEGRATION.md`). When the env is not set, the whitelist is never shipped to the browser.
 
 ## API
 

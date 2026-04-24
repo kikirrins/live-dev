@@ -115,3 +115,90 @@ Host-proxy → session auth + whitelist → ScreenshotStore.get(id) → stream P
 
 ### Out of scope (deferred)
 S3 / DB adapter code (hosts implement against the contract); screenshot retention / GC (host lifecycle rules); inline image rendering in GitHub issue body (would require public or signed URL → breaks invariant); multi-frame / screencast capture; in-overlay editing (crop / blur / annotate); rich `/dev/screenshots/:id` viewer page (MVP streams PNG directly; dashboard integration left to the dashboard-client agent).
+
+## 2026-04-24 — integration feedback v1: factories, co-mount, viewer URL, diagnostic
+
+Driven by feedback from the target-app agent integrating live-dev into three host apps. Thirteen observations triaged; twelve shipped in this pass; one (hashed-attrs RFC) deferred pending full proposal. RFP bumped to **version 2** — breaking change for integrating agents (factory API replaces stub-replace pattern), but the wire format and all server-side invariants are unchanged.
+
+### Bugs fixed
+
+- **Viewer URL mismatch** — host-proxy was appending `/dev/screenshots/<id>` to issue bodies while the reference viewer lived at `/api/livedev/screenshots/[id]`. Canonicalised everywhere on **`/api/livedev/screenshots/:id`**. The factory now exposes `buildViewerUrl(id): string` with that default; hosts mounting the viewer elsewhere override the option.
+- **Sidecar bound at import** — `modules/issues-service/src/index.ts` used to call `serve(...)` at module load. Co-mounting inside a host backend was impossible without starting a duplicate port listener. Split into `src/app.ts` (pure factory) + `src/main.ts` (standalone bootstrap). `src/index.ts` keeps a thin re-export for back-compat.
+- **Runtime-throwing stubs** — every reference handler in host-proxy used to `throw new Error("Replace getSessionUser...")` at first request. Forgetting one of four files surfaced at user click-time, not build-time. Replaced with **factories that take required typed arguments**; missing `getUser` or `store` now fails at `tsc`.
+- **`_diagnostic` route unreachable** — `_`-prefixed folders are private in Next App Router (excluded from routing). Renamed to `/api/livedev/diagnostic`.
+
+### New: factory-based integration API
+
+```ts
+// host app — Next.js
+import { createIssuesRoute, createScreenshotsViewerRoute, createDiagnosticRoute, createPRsRoute } from "@livedev/host-proxy/create";
+import { getCurrentUser } from "@/app/lib/session";
+import { store } from "@/app/lib/screenshot-store";
+
+export const { POST } = createIssuesRoute({ getUser: async () => getCurrentUser(), store });
+```
+
+Four factories: `createIssuesRoute`, `createScreenshotsViewerRoute`, `createPRsRoute`, `createDiagnosticRoute`. Each returns `{ POST }` / `{ GET }` ready for App Router `export const` binding. Express twins: `createIssuesHandler`, `createScreenshotsViewerHandler`, `createPRsHandler`, `createDiagnosticHandler`.
+
+Reference files (`modules/host-proxy/next/route.ts` etc.) are now ~10-line examples showing factory usage. Integrating agents either keep them as-is (once they replace the placeholder `getUser` / `store`) or delete them in favour of their own copies inside the host repo.
+
+### New: diagnostic endpoint
+
+`GET /api/livedev/diagnostic` — admin-gated (whitelisted session required). Returns:
+
+```ts
+{
+  session:   { ok, userId } | { ok: false, reason },
+  whitelist: { found, count, path },
+  sidecar:   { reachable, rtt_ms, status, error },   // 1s AbortSignal.timeout probe of /health
+  store:     { kind: "s3" | "db" | "fs" | "unknown", configured },
+  env:       { LIVEDEV_ISSUES_URL, LIVEDEV_SERVICE_TOKEN, LIVEDEV_APP_ORIGIN }, // booleans only
+}
+```
+
+Secrets are always collapsed to booleans. Designed to save "is my `LIVEDEV_ISSUES_URL` right?" debugging across parallel host rollouts.
+
+### New: injectable GitHub client
+
+`modules/issues-service/src/gh.ts` exposes a `GitHubClient` interface with the five endpoints the sidecar uses (`createIssue`, `createLabel`, `listOpenPulls`, `listDeployments`, `listDeploymentStatuses`). Two implementations ship:
+
+- **`octokitClient(octokit)`** — wraps `@octokit/rest`; default in `main.ts` for the standalone sidecar.
+- **`fetchClient({ token })`** — ~120-line native-fetch implementation. Mirrors Octokit error shapes so existing 502 branches behave identically. Recommended for **co-mounted** deployments where shipping `@octokit/rest` (~400KB parsed) into a host API bundle is wasteful.
+
+### Whitelist client exposure: opt-in
+
+`modules/overlay-client/webpack/withLiveDev.cjs` now gates the `NEXT_PUBLIC_LIVEDEV_WHITELIST` inline on `process.env.LIVEDEV_EXPOSE_WHITELIST === "true"`. Default: do **not** inline. `OverlayLoader` detects the absent env and skips the client-side pre-check — every visitor sees the toggle; clicks are rejected server-side with 403. Hosts that want the toggle hidden for non-admins opt in explicitly and accept the bundle-leak tradeoff.
+
+### Documentation hardening
+
+New sections across INTEGRATION.md files:
+
+- `modules/host-proxy/INTEGRATION.md` — **Trust model** (`X-Livedev-User` is server-set after session auth; sidecar trusts it because it also requires `LIVEDEV_SERVICE_TOKEN`; audit-quality, not cryptographic; HMAC-signing doesn't close a new gap and is left as a follow-up), **Multipart forwarding** (host-proxy reads multipart, stores PNG, forwards JSON only — sidecar never sees image bytes), **Viewer URL** (canonical path + override).
+- `modules/issues-service/INTEGRATION.md` — **CORS behavior** (empty `LIVEDEV_ALLOWED_ORIGINS` → hard-deny every origin including `null`; name each host explicitly; `skipCors: true` for co-mounted deployments), **Co-mount recipe**.
+- `modules/screenshots/INTEGRATION.md` — **Import conventions** (all reference files use extensionless relative imports; agents do not need to strip `.js` after copy).
+- `modules/whitelist/README.md` — identity-key canonicalisation (`{ id: string }` everywhere; email / uuid / clerk-id are all valid values).
+- `modules/overlay-client/INTEGRATION.md` — `LIVEDEV_EXPOSE_WHITELIST` opt-in + whitelist posture.
+- `modules/dashboard-client/INTEGRATION.md` — updated to reference `createPRsRoute` factory instead of stub replacement.
+
+### RFP v2
+
+Root `README.md`:
+- `version: 2`, breaking summary note about the factory API.
+- Two new security invariants:
+  - "Host-proxy and issues-service expose factories with required typed arguments; forgetting them fails at compile time."
+  - "Issues-service has no side effects on import — `serve()` runs only from `src/main.ts`, so the Hono app can be co-mounted inside any host backend."
+- Whitelist invariant reworded to call out the opt-in client exposure.
+
+### Verified end-to-end
+
+- `pnpm -r build` clean; `target-app` route manifest shows all four routes (`/api/livedev/issues`, `/prs`, `/screenshots/[id]`, `/diagnostic`).
+- Grep invariants: zero `throw new Error.*Replace` stubs, zero `/dev/screenshots/` in code, zero `./*.js` relative imports, `serve()` only in `main.ts`.
+- Diagnostic returns the full shape with `sidecar.reachable: true, rtt_ms: 3, status: 200`.
+- Multipart upload stores PNG; viewer round-trip returns byte-identical bytes with `Content-Type: image/png`.
+- `import("@livedev/issues-service/app")` — factory exports print, process exits cleanly, port 8787 stays free. Co-mount import has zero side effects.
+- Browser bundle: zero hits for `api.github.com` / `__LIVEDEV_GITHUB__`. Default build has no admin-email strings in `.next/static`.
+- Sidecar rejection matrix (bad token / missing user / non-whitelisted / evil origin / 11MB upload) all behave as before — factory refactor preserved every invariant.
+
+### Deferred
+
+**Hashed `data-livedev-*` attrs RFC** — upstream agent's proposal to hash the source-location attrs the webpack loader injects (privacy for non-admin visitors in production builds). Underspecified at the time of this pass; tracked as a follow-up. Suggested treatment: make the loader's `data-livedev-src` output configurable (`plain` / `hash` / `off`) with default `off` in production, `plain` in dev.

@@ -4,11 +4,28 @@
   "private": true,
   "description": "Reference implementations of the same-origin /api/livedev/issues route an agent copies into a host app. Authenticates the host session, then forwards to the livedev issues-service.",
   "files": ["next", "express", "README.md", "INTEGRATION.md"],
+  "exports": {
+    ".": "./next/create.ts",
+    "./create": "./next/create.ts",
+    "./express": "./express/create.ts"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit"
   },
+  "dependencies": {
+    "@livedev/screenshots": "workspace:*",
+    "@livedev/whitelist": "workspace:*"
+  },
+  "peerDependencies": {
+    "next": ">=13"
+  },
+  "peerDependenciesMeta": {
+    "next": { "optional": true }
+  },
   "devDependencies": {
+    "@types/express": "^5.0.0",
     "@types/node": "^22.9.0",
+    "next": "15.0.3",
     "typescript": "^5.6.3"
   }
 }

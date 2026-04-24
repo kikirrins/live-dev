@@ -49,9 +49,10 @@ verification_steps:
 Integration steps (Next.js App Router):
 
 1. Install the module as a workspace dependency (or copy `react/` into your app).
-2. Copy `modules/host-proxy/next/prs/route.ts` into your host at
-   `app/api/livedev/prs/route.ts`, and replace `getSessionUser` with your
-   real auth (same pattern as the `/issues` proxy).
+2. Create `app/api/livedev/prs/route.ts` using `createPRsRoute` from
+   `@livedev/host-proxy/create` — pass your session lookup. The factory forwards
+   to the sidecar with the service token and resolved `X-Livedev-User`. No
+   runtime-throwing stubs; missing `getUser` is a TypeScript compile error.
 3. Create `app/dev/page.tsx` importing `Dashboard` from `@livedev/dashboard-client`.
    Gate rendering on your whitelist check (see `modules/target-app/app/dev/page.tsx`
    for a reference implementation).

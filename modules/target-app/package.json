@@ -11,6 +11,7 @@
   "dependencies": {
     "@babel/runtime": "^7.29.2",
     "@livedev/dashboard-client": "workspace:*",
+    "@livedev/host-proxy": "workspace:*",
     "@livedev/overlay-client": "workspace:*",
     "@livedev/screenshots": "workspace:*",
     "@livedev/whitelist": "workspace:*",

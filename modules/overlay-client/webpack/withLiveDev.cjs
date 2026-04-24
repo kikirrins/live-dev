@@ -1,13 +1,14 @@
 /**
- * withLiveDev — Next.js config wrapper that adds the livedev source-injection loader
- * and inlines the livedev whitelist as NEXT_PUBLIC_LIVEDEV_WHITELIST.
+ * withLiveDev — Next.js config wrapper that injects the source-location loader.
+ *
+ * By default the whitelist is NOT exposed to the browser (server remains
+ * authoritative). Set LIVEDEV_EXPOSE_WHITELIST=true to inline it as
+ * NEXT_PUBLIC_LIVEDEV_WHITELIST so the overlay hides its toggle for
+ * non-whitelisted sessions — tradeoff: the admin list ships in the bundle.
  *
  * Usage:
  *   const withLiveDev = require("@livedev/overlay-client/webpack");
  *   module.exports = withLiveDev(nextConfig);
- *
- * Or with other wrappers:
- *   module.exports = withLiveDev(withSomething(nextConfig));
  */
 
 const fs = require("fs");
@@ -40,13 +41,14 @@ function readAllowedUsers() {
 }
 
 function withLiveDev(nextConfig = {}) {
-  const allowedUsers = readAllowedUsers();
+  const expose = process.env.LIVEDEV_EXPOSE_WHITELIST === "true";
+  const env = { ...(nextConfig.env ?? {}) };
+  if (expose) {
+    env.NEXT_PUBLIC_LIVEDEV_WHITELIST = JSON.stringify(readAllowedUsers());
+  }
   return {
     ...nextConfig,
-    env: {
-      ...(nextConfig.env ?? {}),
-      NEXT_PUBLIC_LIVEDEV_WHITELIST: JSON.stringify(allowedUsers),
-    },
+    env,
     webpack(config, options) {
       // Only inject in development
       if (options.dev) {

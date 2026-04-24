@@ -18,13 +18,14 @@ host_changes:
   - action: modify
     path: next.config.mjs
     source_snippet: modules/target-app/next.config.mjs
-    reason: "Wrap the exported config with withLiveDev so JSX source attributes are injected and the whitelist is inlined as NEXT_PUBLIC_LIVEDEV_WHITELIST."
+    reason: "Wrap the exported config with withLiveDev so JSX source attributes are injected."
   - action: create
     path: livedev.whitelist.json
     source_snippet: modules/target-app/livedev.whitelist.json
-    reason: "Host-app user allowlist. Empty array = nobody."
+    reason: "Host-app user allowlist. Empty array = nobody. Server remains authoritative."
 env_vars:
   - { name: NEXT_PUBLIC_LIVEDEV_ENABLED, scope: host, required: false, example: "true", secret: false }
+  - { name: LIVEDEV_EXPOSE_WHITELIST, scope: host, required: false, example: "true", secret: false, notes: "Build-time only. When true, withLiveDev inlines the admin list into the client bundle so the overlay toggle stays hidden for non-whitelisted sessions. When unset (default), the toggle shows for every visitor and clicks are rejected server-side. Tradeoff: the admin list ships in the bundle if you opt in." }
 mount_points:
   - "Root layout, inside <body>, after {children}."
 routes: []
@@ -37,3 +38,7 @@ verification_steps:
 # Overlay-client — integration spec
 
 Copy the three pieces above, wire the React component into your root layout with the current session user, and wrap `next.config` with `withLiveDev`. No credentials are passed through the browser — submissions go to the host's own route, which is added via the `host-proxy` module.
+
+## Whitelist posture
+
+By default the admin list is **server-side only**. The overlay toggle appears for every visitor; any click/submit is rejected by the host-proxy with 403 when the session is not whitelisted. Set `LIVEDEV_EXPOSE_WHITELIST=true` at build time if you want the toggle hidden for non-admins — the tradeoff is that the admin list ships in the browser bundle.

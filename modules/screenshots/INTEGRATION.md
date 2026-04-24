@@ -28,13 +28,13 @@ credentials:
   - "DB path: no additional credentials — use whatever the host already has for DB access."
 routes:
   - { method: POST, path: /api/livedev/issues, multipart: true }
-  - { method: GET, path: /dev/screenshots/:id }
+  - { method: GET, path: /api/livedev/screenshots/:id }
 mount_points: []
 verification_steps:
   - "Submit an issue via the overlay with a screenshot. POST /api/livedev/issues returns 201. GitHub issue body contains a [View screenshot](...) link."
-  - "GET /dev/screenshots/<id> as a whitelisted user → 200, Content-Type: image/png, Cache-Control: private, no-store."
-  - "GET /dev/screenshots/<id> as non-whitelisted → 403."
-  - "GET /dev/screenshots/not-a-real-uuid → 404."
+  - "GET /api/livedev/screenshots/<id> as a whitelisted user → 200, Content-Type: image/png, Cache-Control: private, no-store."
+  - "GET /api/livedev/screenshots/<id> as non-whitelisted → 403."
+  - "GET /api/livedev/screenshots/not-a-real-uuid → 404."
   - "POST /api/livedev/issues with a body > LIVEDEV_SCREENSHOT_MAX_BYTES → 413."
   - "Cancel the share-tab dialog in the browser → issue still filed, no screenshot link in body."
 ---
@@ -161,3 +161,7 @@ These three invariants MUST be preserved by any implementation:
 1. **Unguessable id.** `put` MUST generate a crypto-random UUID v4 (or longer). Sequential or predictable ids allow enumeration.
 2. **`get` does not authorize.** The store is called only after the viewer route has already performed session auth and whitelist checks. Keeping auth out of the store means the same store works under any route policy the host wants to layer on top.
 3. **Private backend.** S3 buckets MUST have no public ACL (`ACL: "private"`). DB rows MUST be reachable only from the host's own code paths. No public or pre-signed URLs are ever generated.
+
+## Import conventions
+
+Every reference file in this repo uses **extensionless** relative imports (`from "./foo"`, not `from "./foo.js"`). You can copy-paste into a Next.js / Vite / tsup host without rewriting. Workspace packages (`@livedev/*`) resolve via `exports` pointed at `.ts` sources — consumers bundle from source.

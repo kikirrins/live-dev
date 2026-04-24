@@ -1,6 +1,6 @@
 import type { Context } from "hono";
-import type { Octokit } from "@octokit/rest";
 import { isAllowed, loadWhitelist } from "@livedev/whitelist/server";
+import type { GitHubClient } from "./gh";
 
 export interface DashboardPR {
   number: number;
@@ -15,7 +15,7 @@ export interface DashboardPR {
 }
 
 export interface PRsHandlerDeps {
-  octokit: Octokit;
+  client: GitHubClient;
   owner: string;
   repo: string;
 }
@@ -36,28 +36,25 @@ export function createPRsHandler(
 
     const d = deps();
     if (!d) return c.json({ error: "service_misconfigured" }, 500);
-    const { octokit, owner, repo } = d;
+    const { client, owner, repo } = d;
 
     try {
-      const { data: prs } = await octokit.pulls.list({
-        owner,
-        repo,
-        state: "open",
+      const prs = await client.listOpenPulls(owner, repo, {
+        per_page: 50,
         sort: "updated",
         direction: "desc",
-        per_page: 50,
       });
 
       const results: DashboardPR[] = await Promise.all(
         prs.map(async (pr): Promise<DashboardPR> => {
-          const preview_url = await latestPreviewUrl(octokit, owner, repo, pr.head.sha);
+          const preview_url = await latestPreviewUrl(client, owner, repo, pr.head_sha);
           return {
             number: pr.number,
             title: pr.title,
-            author: pr.user?.login ?? null,
-            branch: pr.head.ref,
+            author: pr.user_login,
+            branch: pr.head_ref,
             state: "open",
-            draft: pr.draft ?? false,
+            draft: pr.draft,
             updated_at: pr.updated_at,
             html_url: pr.html_url,
             preview_url,
@@ -74,30 +71,18 @@ export function createPRsHandler(
 }
 
 async function latestPreviewUrl(
-  octokit: Octokit,
+  client: GitHubClient,
   owner: string,
   repo: string,
   sha: string,
 ): Promise<string | null> {
   try {
-    const { data: deployments } = await octokit.repos.listDeployments({
-      owner,
-      repo,
-      sha,
-      per_page: 10,
-    });
+    const deployments = await client.listDeployments(owner, repo, { sha, per_page: 10 });
     if (deployments.length === 0) return null;
 
     for (const dep of deployments) {
-      const { data: statuses } = await octokit.repos.listDeploymentStatuses({
-        owner,
-        repo,
-        deployment_id: dep.id,
-        per_page: 10,
-      });
-      const ready = statuses.find(
-        (s) => s.state === "success" && s.environment_url,
-      );
+      const statuses = await client.listDeploymentStatuses(owner, repo, dep.id);
+      const ready = statuses.find((s) => s.state === "success" && s.environment_url);
       if (ready?.environment_url) return ready.environment_url;
       const anyUrl = statuses.find((s) => s.environment_url);
       if (anyUrl?.environment_url) return anyUrl.environment_url;
