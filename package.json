@@ -8,7 +8,9 @@
     "build": "pnpm -r run build",
     "dev:target": "pnpm --filter target-app dev",
     "dev:overlay": "pnpm --filter @livedev/overlay-client dev",
-    "dev:issues-service": "pnpm --filter @livedev/issues-service dev"
+    "dev:issues-service": "pnpm --filter @livedev/issues-service dev",
+    "check:imports": "bash scripts/check-no-js-imports.sh",
+    "check": "pnpm check:imports && pnpm -r typecheck"
   },
   "engines": {
     "node": ">=20.11.0"

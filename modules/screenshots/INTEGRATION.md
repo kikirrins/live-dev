@@ -165,3 +165,5 @@ These three invariants MUST be preserved by any implementation:
 ## Import conventions
 
 Every reference file in this repo uses **extensionless** relative imports (`from "./foo"`, not `from "./foo.js"`). You can copy-paste into a Next.js / Vite / tsup host without rewriting. Workspace packages (`@livedev/*`) resolve via `exports` pointed at `.ts` sources — consumers bundle from source.
+
+This is enforced by `pnpm check:imports` (script at `scripts/check-no-js-imports.sh`). Run it locally before submitting a PR upstream, or wire it into CI alongside `pnpm -r typecheck`.
