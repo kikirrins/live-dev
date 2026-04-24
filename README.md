@@ -45,6 +45,10 @@ modules:
     role: sidecar
     source_path: modules/issues-service
     integration_doc: modules/issues-service/INTEGRATION.md
+  - id: dashboard-client
+    role: frontend
+    source_path: modules/dashboard-client
+    integration_doc: modules/dashboard-client/INTEGRATION.md
   - id: whitelist
     role: shared
     source_path: modules/whitelist
@@ -57,6 +61,7 @@ install_order:
   - issues-service
   - host-proxy
   - overlay-client
+  - dashboard-client
 security_invariants:
   - "No GitHub credential in the browser or in any bundle reachable by the browser."
   - "Host-proxy authenticates the session using the host's existing auth, not a client-sent id."
@@ -72,6 +77,7 @@ verification: modules/target-app/README.md
 | `modules/overlay-client` | frontend | [`INTEGRATION.md`](modules/overlay-client/INTEGRATION.md) |
 | `modules/host-proxy` | backend | [`INTEGRATION.md`](modules/host-proxy/INTEGRATION.md) |
 | `modules/issues-service` | sidecar | [`INTEGRATION.md`](modules/issues-service/INTEGRATION.md) |
+| `modules/dashboard-client` | frontend | [`INTEGRATION.md`](modules/dashboard-client/INTEGRATION.md) |
 | `modules/whitelist` | shared | [`README.md`](modules/whitelist/README.md) |
 | `modules/credentials` | setup | [`INTEGRATION.md`](modules/credentials/INTEGRATION.md) |
 

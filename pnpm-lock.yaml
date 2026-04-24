@@ -12,6 +12,28 @@ importers:
         specifier: ^5.6.3
         version: 5.9.3
 
+  modules/dashboard-client:
+    dependencies:
+      '@livedev/whitelist':
+        specifier: workspace:*
+        version: link:../whitelist
+      next:
+        specifier: '>=13'
+        version: 15.0.3(react-dom@19.0.0-rc-66855b96-20241106(react@19.2.5))(react@19.2.5)
+      react:
+        specifier: '>=18'
+        version: 19.2.5
+    devDependencies:
+      '@types/node':
+        specifier: ^22.9.0
+        version: 22.19.17
+      '@types/react':
+        specifier: ^18.3.12
+        version: 18.3.28
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+
   modules/host-proxy:
     devDependencies:
       '@types/node':
@@ -76,6 +98,9 @@ importers:
       '@babel/runtime':
         specifier: ^7.29.2
         version: 7.29.2
+      '@livedev/dashboard-client':
+        specifier: workspace:*
+        version: link:../dashboard-client
       '@livedev/overlay-client':
         specifier: workspace:*
         version: link:../overlay-client

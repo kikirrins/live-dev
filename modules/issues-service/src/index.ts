@@ -1,9 +1,11 @@
 import { serve } from "@hono/node-server";
 import { Octokit } from "@octokit/rest";
 import { Hono } from "hono";
+import type { Context } from "hono";
 import { cors } from "hono/cors";
 import { timingSafeEqual, createHash } from "node:crypto";
 import { isAllowed, loadWhitelist } from "@livedev/whitelist/server";
+import { createPRsHandler } from "./prs.js";
 
 const PAT = process.env.LIVEDEV_GITHUB_PAT ?? "";
 const REPO = process.env.LIVEDEV_GITHUB_REPO ?? "";
@@ -31,9 +33,34 @@ app.use(
   cors({
     origin: ALLOWED_ORIGINS.length > 0 ? ALLOWED_ORIGINS : [],
     allowHeaders: ["Content-Type", "Authorization", "X-Livedev-User"],
-    allowMethods: ["POST", "OPTIONS"],
+    allowMethods: ["GET", "POST", "OPTIONS"],
   }),
 );
+
+/**
+ * Verifies service-token + X-Livedev-User headers. Returns the userId string
+ * on success, or a Response to return to the caller on failure.
+ */
+async function requireAuthenticatedUser(c: Context): Promise<Response | string> {
+  if (!SERVICE_TOKEN) return c.json({ error: "service_misconfigured" }, 500);
+  const authHeader = c.req.header("Authorization");
+  if (!authHeader?.startsWith("Bearer ")) {
+    return c.json({ error: "missing_service_token" }, 401);
+  }
+  const token = authHeader.slice(7);
+  if (!constantTimeEqual(token, SERVICE_TOKEN)) {
+    return c.json({ error: "invalid_service_token" }, 401);
+  }
+  const userId = c.req.header("X-Livedev-User");
+  if (!userId) return c.json({ error: "missing_user" }, 401);
+  return userId;
+}
+
+function resolveRepo(): { owner: string; repo: string } | null {
+  const slashIndex = REPO.indexOf("/");
+  if (slashIndex === -1) return null;
+  return { owner: REPO.slice(0, slashIndex), repo: REPO.slice(slashIndex + 1) };
+}
 
 let labelEnsured = false;
 async function ensureLabel(owner: string, repo: string): Promise<void> {
@@ -117,6 +144,19 @@ app.post("/issues", async (c) => {
     return c.json({ error: "upstream_error", message }, 502);
   }
 });
+
+app.get(
+  "/prs",
+  createPRsHandler(
+    () => {
+      if (!PAT || !REPO) return null;
+      const r = resolveRepo();
+      if (!r) return null;
+      return { octokit, owner: r.owner, repo: r.repo };
+    },
+    requireAuthenticatedUser,
+  ),
+);
 
 app.get("/health", (c) => c.json({ ok: true }));
 

@@ -1,0 +1,33 @@
+{
+  "name": "@livedev/dashboard-client",
+  "version": "0.0.0",
+  "private": true,
+  "description": "React dashboard component that lists open GitHub PRs and their Railway preview sandboxes. Posts same-origin to the host-proxy; never handles credentials.",
+  "type": "module",
+  "main": "./react/Dashboard.tsx",
+  "types": "./react/Dashboard.tsx",
+  "exports": {
+    ".": "./react/Dashboard.tsx",
+    "./types": "./react/types.ts"
+  },
+  "files": [
+    "react",
+    "README.md",
+    "INTEGRATION.md"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "next": ">=13",
+    "react": ">=18"
+  },
+  "dependencies": {
+    "@livedev/whitelist": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "@types/react": "^18.3.12",
+    "typescript": "^5.6.3"
+  }
+}
