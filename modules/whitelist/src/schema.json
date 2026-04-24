@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://livedev.dev/schemas/whitelist.json",
+  "title": "Live-Dev whitelist",
+  "description": "Host-app users authorised to open the overlay and file issues. Fail-closed: empty/missing array rejects everyone.",
+  "type": "object",
+  "required": ["allowedUsers"],
+  "additionalProperties": false,
+  "properties": {
+    "allowedUsers": {
+      "type": "array",
+      "description": "Host-app user identifiers (emails, ids — whatever the host forwards as X-Livedev-User).",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    }
+  }
+}

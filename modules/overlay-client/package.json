@@ -1,0 +1,42 @@
+{
+  "name": "@livedev/overlay-client",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Browser overlay + React mount + Next.js webpack integration. Posts to a same-origin host route; never handles credentials.",
+  "type": "module",
+  "main": "./react/OverlayLoader.tsx",
+  "types": "./react/OverlayLoader.tsx",
+  "exports": {
+    ".": "./react/OverlayLoader.tsx",
+    "./webpack": "./webpack/withLiveDev.cjs",
+    "./loader": "./webpack/loader.cjs",
+    "./dist/livedev-overlay.js": "./dist/livedev-overlay.js"
+  },
+  "files": [
+    "react",
+    "browser",
+    "webpack",
+    "dist",
+    "README.md",
+    "INTEGRATION.md"
+  ],
+  "scripts": {
+    "build": "esbuild browser/src/index.ts --bundle --format=esm --outfile=dist/livedev-overlay.js --target=es2020",
+    "dev": "esbuild browser/src/index.ts --bundle --format=esm --outfile=dist/livedev-overlay.js --target=es2020 --watch",
+    "dev:target": "esbuild browser/src/index.ts --bundle --format=esm --outfile=../target-app/public/livedev-overlay.js --target=es2020 --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "next": ">=13",
+    "react": ">=18"
+  },
+  "dependencies": {
+    "@livedev/whitelist": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "@types/react": "^18.3.12",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.3"
+  }
+}
