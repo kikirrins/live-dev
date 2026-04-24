@@ -63,3 +63,55 @@ MVP is read-only. Explicitly deferred: merge button, release-branch workflow, li
 
 ### Verification
 `pnpm --filter target-app build` compiles clean; `/dev` and `/api/livedev/prs` both appear in the Next.js route manifest. `pnpm --filter @livedev/issues-service build` clean. End-to-end browser verification (per plan): visit `/dev`, expect the PR table, confirm zero requests to `api.github.com` from the browser, confirm whitelist removal produces a 404 on the page and 403 on the API.
+
+## 2026-04-24 — screenshot capture + host-owned storage (`6328bc8`)
+
+Overlay now captures a **real viewport raster** via the Screen Capture API (`navigator.mediaDevices.getDisplayMedia`) when the user submits a change request, so downstream agents have visual context. The PNG is stored by the host (never by the sidecar) and served through a session-authenticated viewer route — no public or signed URLs.
+
+### Flow
+```
+Browser overlay
+  │ getDisplayMedia → canvas (+ highlight rect) → PNG blob
+  ▼ multipart POST /api/livedev/issues
+Host-proxy
+  │ 1. session auth
+  │ 2. ScreenshotStore.put(bytes) → id       ← host implements (S3 / DB)
+  │ 3. append "[View screenshot](…/dev/screenshots/<id>)" to issue body
+  │ 4. forward {title, body, source} JSON to sidecar
+  ▼
+Issues-service   (unchanged — never sees the PNG)
+
+Viewer:
+Browser → GET /dev/screenshots/:id
+Host-proxy → session auth + whitelist → ScreenshotStore.get(id) → stream PNG
+```
+
+### New
+- **`modules/screenshots/`** — contract-only module. `src/storage.ts` exports the `ScreenshotStore` interface. `INTEGRATION.md` ships two recipes: **S3 primary** (`@aws-sdk/client-s3`, `ACL: "private"`, `s3://bucket/<prefix>/<uuid>.png`) and **DB fallback** (`screenshots(id, png blob, owner_id, created_at)` table). Host picks one. Security invariants: unguessable UUID, `get` does not authorize, private backend.
+- `modules/overlay-client/browser/src/capture.ts` — `captureViewport(highlight?)` uses `getDisplayMedia({ preferCurrentTab: true })`, grabs one frame via `<video>` + `drawImage`, draws a translucent blue rect at the clicked element's bbox, stops all tracks on every exit path, returns `null` on user-cancel (best-effort; issue still submits without).
+- `modules/host-proxy/next/screenshots/[id]/route.ts` + `modules/host-proxy/express/screenshots.ts` — viewer reference handlers. Session auth → `isAllowed` check → `store.get` → `Content-Type: image/png`, `Cache-Control: private, no-store`.
+- `modules/target-app/app/lib/screenshot-store.ts` — **dev-only** filesystem `ScreenshotStore` adapter so the reference host runs offline. Writes `<uuid>.png` + `<uuid>.json` to `LIVEDEV_SCREENSHOT_DIR` (default `./.livedev-screenshots`). UUID regex validates the id before touching FS (path-traversal guard).
+- `modules/target-app/app/api/livedev/screenshots/[id]/route.ts` — real viewer wired to the fs store.
+
+### Modified
+- `modules/overlay-client/browser/src/index.ts` — captures the target rect **before** `closePanel` (so the panel isn't in the frame), calls `captureViewport` inside `requestAnimationFrame`, posts `FormData` with `meta` (JSON) + `screenshot` (blob) parts. Falls back to JSON body when capture returns `null`.
+- `modules/overlay-client/browser/src/screenshot.ts` — **deleted**. The old synthetic render is gone.
+- `modules/host-proxy/next/route.ts` + `modules/host-proxy/express/handler.ts` — detect `multipart/form-data`, enforce `LIVEDEV_SCREENSHOT_MAX_BYTES` (default 10MB) → 413 on overrun, call `store.put`, append viewer link to `meta.body` before forwarding the JSON (with the link) to the sidecar. The sidecar still only ever receives `{title, body, source}`.
+- `modules/host-proxy/INTEGRATION.md` — `dependencies: [credentials, screenshots]`, adds `LIVEDEV_APP_ORIGIN` + `LIVEDEV_SCREENSHOT_MAX_BYTES` env vars, adds `POST /api/livedev/issues (multipart)` + `GET /dev/screenshots/:id` routes, adds the new viewer `host_changes` entry.
+- `modules/target-app/app/api/livedev/issues/route.ts` — multipart handling + real `store.put` call.
+- `modules/target-app/package.json` — depends on `@livedev/screenshots`.
+- `modules/target-app/.env.local.example` — `LIVEDEV_APP_ORIGIN=http://localhost:3000`, `LIVEDEV_SCREENSHOT_DIR=./.livedev-screenshots`.
+- `.gitignore` — `.livedev-screenshots/`.
+- `modules/issues-service/tsconfig.json` — switched `moduleResolution` to `Bundler` to match how the rest of the workspace (Next, esbuild, tsx) consumes shared packages; `@livedev/whitelist/server` imports drop the `.js` extensions that were only needed for Node16.
+- `README.md` — `screenshots` module added to agentic-rfp `modules` list (role: shared) and to `install_order` right after `credentials`. New `security_invariant`: "Screenshots are served only through a session-authenticated host route; no public or signed URLs."
+
+### Security invariants verified end-to-end
+- Browser bundle: 0 hits for `api.github.com` / `__LIVEDEV_GITHUB__` / any GitHub token reference.
+- Sidecar source: 0 hits for `FormData` / `multer` / multipart handling. PNG bytes never reach it.
+- Multipart upload round-trip: PNG stored, viewer returns byte-identical image with `Content-Type: image/png`.
+- Unknown id → 404. Path-traversal id (`..%2Fetc%2Fpasswd`) → 404 (UUID regex rejects before FS touch).
+- 11MB upload → 413 `screenshot_too_large`.
+- Meta file contains only `{ownerId, createdAt}` — no PII beyond the host-app user id.
+
+### Out of scope (deferred)
+S3 / DB adapter code (hosts implement against the contract); screenshot retention / GC (host lifecycle rules); inline image rendering in GitHub issue body (would require public or signed URL → breaks invariant); multi-frame / screencast capture; in-overlay editing (crop / blur / annotate); rich `/dev/screenshots/:id` viewer page (MVP streams PNG directly; dashboard integration left to the dashboard-client agent).
