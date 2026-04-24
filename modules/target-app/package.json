@@ -12,6 +12,7 @@
     "@babel/runtime": "^7.29.2",
     "@livedev/dashboard-client": "workspace:*",
     "@livedev/overlay-client": "workspace:*",
+    "@livedev/screenshots": "workspace:*",
     "@livedev/whitelist": "workspace:*",
     "next": "15.0.3",
     "react": "19.0.0-rc-66855b96-20241106",

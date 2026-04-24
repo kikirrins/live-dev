@@ -1,9 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 
-export type { Whitelist } from "./index.js";
-import type { Whitelist } from "./index.js";
-export { isAllowed } from "./index.js";
+export type { Whitelist } from "./index";
+import type { Whitelist } from "./index";
+export { isAllowed } from "./index";
 
 export function loadWhitelist(cwd?: string): Whitelist {
   const explicitPath = process.env.LIVEDEV_WHITELIST_PATH;

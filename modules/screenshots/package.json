@@ -1,0 +1,19 @@
+{
+  "name": "@livedev/screenshots",
+  "version": "0.0.0",
+  "private": true,
+  "description": "ScreenshotStore contract the host implements against its own S3 bucket or database. No runtime code — interface + docs only.",
+  "type": "module",
+  "main": "./src/storage.ts",
+  "types": "./src/storage.ts",
+  "exports": {
+    ".": "./src/storage.ts"
+  },
+  "files": ["src", "README.md", "INTEGRATION.md"],
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}

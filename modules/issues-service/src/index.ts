@@ -5,7 +5,7 @@ import type { Context } from "hono";
 import { cors } from "hono/cors";
 import { timingSafeEqual, createHash } from "node:crypto";
 import { isAllowed, loadWhitelist } from "@livedev/whitelist/server";
-import { createPRsHandler } from "./prs.js";
+import { createPRsHandler } from "./prs";
 
 const PAT = process.env.LIVEDEV_GITHUB_PAT ?? "";
 const REPO = process.env.LIVEDEV_GITHUB_REPO ?? "";

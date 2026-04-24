@@ -1,3 +1,4 @@
+import { captureViewport } from "./capture";
 import { extractSourceInfo } from "./fiber";
 import { OVERLAY_CSS } from "./styles";
 
@@ -214,24 +215,53 @@ class LiveDevOverlay {
         ].filter(Boolean).join("\n");
 
         const { endpoint } = getConfig();
+        const elRect = el.getBoundingClientRect();
+
+        this.closePanel();
+
+        const meta = {
+          title: prompt.slice(0, 60),
+          body,
+          source: {
+            componentName: source.componentName,
+            fileName: source.fileName,
+            lineNumber: source.lineNumber,
+            parentChain: source.parentChain,
+            url: location.href,
+          },
+        };
+
+        const blob = await new Promise<Blob | null>((resolve) => {
+          requestAnimationFrame(() => {
+            captureViewport({
+              top: elRect.top,
+              left: elRect.left,
+              width: elRect.width,
+              height: elRect.height,
+            }).then(resolve).catch(() => resolve(null));
+          });
+        });
+
         console.log("[livedev] submitting issue to", endpoint);
         try {
-          const res = await fetch(endpoint, {
-            method: "POST",
-            credentials: "same-origin",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              title: prompt.slice(0, 60),
-              body,
-              source: {
-                componentName: source.componentName,
-                fileName: source.fileName,
-                lineNumber: source.lineNumber,
-                parentChain: source.parentChain,
-                url: location.href,
-              },
-            }),
-          });
+          let res: Response;
+          if (blob) {
+            const fd = new FormData();
+            fd.append("meta", JSON.stringify(meta));
+            fd.append("screenshot", blob, "screenshot.png");
+            res = await fetch(endpoint, {
+              method: "POST",
+              credentials: "same-origin",
+              body: fd,
+            });
+          } else {
+            res = await fetch(endpoint, {
+              method: "POST",
+              credentials: "same-origin",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(meta),
+            });
+          }
           if (res.status === 401 || res.status === 403) {
             this.showToast("warn", "Live-Dev: not authorized to file issues");
           } else if (res.ok) {
@@ -248,7 +278,6 @@ class LiveDevOverlay {
           console.warn("[livedev] submit error:", err);
           this.showToast("error", "Live-Dev: network error");
         }
-        this.closePanel();
       }
     });
   }

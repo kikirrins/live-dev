@@ -1,0 +1,3 @@
+# @livedev/screenshots
+
+A contract module — no runtime code, no dependencies. It exports a single `ScreenshotStore` TypeScript interface that the host app implements against its own storage (S3 primary path, existing database as fallback). The overlay captures a real-pixel PNG via the Screen Capture API and posts it to the host-proxy, which calls `store.put` to persist it and appends a same-origin viewer link to the issue body; the PNG never passes through the sidecar and is never publicly accessible. See [INTEGRATION.md](./INTEGRATION.md) for the two implementation recipes and the required security invariants.

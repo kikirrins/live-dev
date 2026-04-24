@@ -5,16 +5,22 @@
  *     app/api/livedev/issues/route.ts
  *
  * Contract:
- *   - Accepts same-origin POST from the overlay with `{ title, body, source }`.
+ *   - Accepts same-origin POST from the overlay as multipart/form-data (with an
+ *     optional screenshot part) or plain JSON (backwards-compatible with hosts
+ *     that have not wired a ScreenshotStore).
  *   - Authenticates the request using the HOST's existing session (replace
  *     `getSessionUser` below with the host's real auth — NextAuth, Clerk,
  *     custom cookie check, etc.). Never trust a client-sent identity.
+ *   - If a screenshot is present, stores it via `store.put` and appends a
+ *     viewer link to the issue body before forwarding to the issues-service.
  *   - Forwards to the livedev issues-service with a service token and the
  *     resolved user id. Returns the service's JSON response unchanged.
  *
  * Env vars (host):
- *   LIVEDEV_ISSUES_URL      — e.g. https://livedev-issues.internal/issues
- *   LIVEDEV_SERVICE_TOKEN   — shared secret with the issues-service
+ *   LIVEDEV_ISSUES_URL            — e.g. https://livedev-issues.internal/issues
+ *   LIVEDEV_SERVICE_TOKEN         — shared secret with the issues-service
+ *   LIVEDEV_APP_ORIGIN            — e.g. https://app.acme.com (required for screenshot links)
+ *   LIVEDEV_SCREENSHOT_MAX_BYTES  — optional, default 10485760 (10 MB)
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -32,6 +38,11 @@ async function getSessionUser(
 }
 // -------------------------------------------------------------------------
 
+// ---- Import or construct a ScreenshotStore (host-provided) --------------
+// import type { ScreenshotStore } from "@livedev/screenshots";
+// import { store } from "./screenshot-store"; // host-provided
+// -------------------------------------------------------------------------
+
 export async function POST(req: NextRequest) {
   const user = await getSessionUser(req);
   if (!user) {
@@ -47,12 +58,36 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  let body: unknown;
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: "invalid_json" }, { status: 400 });
+  const contentType = req.headers.get("content-type") ?? "";
+  let meta: { title?: string; body?: string; source?: string };
+  let screenshot: File | null = null;
+
+  if (contentType.startsWith("multipart/form-data")) {
+    const form = await req.formData();
+    meta = JSON.parse(form.get("meta") as string);
+    screenshot = form.get("screenshot") as File | null;
+  } else {
+    try {
+      meta = (await req.json()) as { title?: string; body?: string; source?: string };
+    } catch {
+      return NextResponse.json({ error: "invalid_json" }, { status: 400 });
+    }
   }
+
+  const MAX = Number(process.env.LIVEDEV_SCREENSHOT_MAX_BYTES ?? 10_485_760);
+  if (screenshot && screenshot.size > MAX) {
+    return NextResponse.json({ error: "screenshot_too_large" }, { status: 413 });
+  }
+
+  // If store is wired and a screenshot was sent, persist it and append a link.
+  // Uncomment the block below once `store` is imported above:
+  //
+  // if (screenshot) {
+  //   const bytes = new Uint8Array(await screenshot.arrayBuffer());
+  //   const { id } = await store.put(bytes, { ownerId: user.id, createdAt: Date.now() });
+  //   const origin = process.env.LIVEDEV_APP_ORIGIN ?? "";
+  //   meta.body = meta.body + "\n\n[View screenshot](" + origin + "/dev/screenshots/" + id + ")";
+  // }
 
   const upstream = await fetch(issuesUrl, {
     method: "POST",
@@ -61,7 +96,7 @@ export async function POST(req: NextRequest) {
       "Authorization": `Bearer ${serviceToken}`,
       "X-Livedev-User": user.id,
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ title: meta.title, body: meta.body, source: meta.source }),
   });
 
   const text = await upstream.text();

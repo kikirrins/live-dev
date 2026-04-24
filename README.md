@@ -52,12 +52,17 @@ modules:
   - id: whitelist
     role: shared
     source_path: modules/whitelist
+  - id: screenshots
+    role: shared
+    source_path: modules/screenshots
+    integration_doc: modules/screenshots/INTEGRATION.md
   - id: credentials
     role: setup
     source_path: modules/credentials
     integration_doc: modules/credentials/INTEGRATION.md
 install_order:
   - credentials
+  - screenshots
   - issues-service
   - host-proxy
   - overlay-client
@@ -67,6 +72,7 @@ security_invariants:
   - "Host-proxy authenticates the session using the host's existing auth, not a client-sent id."
   - "Issues-service verifies a shared service token in constant time before doing anything else."
   - "Whitelist checks are authoritative on the server; any client-side check is UX only."
+  - "Screenshots are served only through a session-authenticated host route; no public or signed URLs."
 verification: modules/target-app/README.md
 ```
 
@@ -79,6 +85,7 @@ verification: modules/target-app/README.md
 | `modules/issues-service` | sidecar | [`INTEGRATION.md`](modules/issues-service/INTEGRATION.md) |
 | `modules/dashboard-client` | frontend | [`INTEGRATION.md`](modules/dashboard-client/INTEGRATION.md) |
 | `modules/whitelist` | shared | [`README.md`](modules/whitelist/README.md) |
+| `modules/screenshots` | shared | [`INTEGRATION.md`](modules/screenshots/INTEGRATION.md) |
 | `modules/credentials` | setup | [`INTEGRATION.md`](modules/credentials/INTEGRATION.md) |
 
 ## Reference host

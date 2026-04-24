@@ -2,6 +2,58 @@ var __defProp = Object.defineProperty;
 var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
 var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
 
+// browser/src/capture.ts
+async function captureViewport(highlight) {
+  let stream = null;
+  try {
+    stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { displaySurface: "browser" },
+      audio: false,
+      preferCurrentTab: true
+    });
+  } catch {
+    return null;
+  }
+  try {
+    const video = document.createElement("video");
+    video.srcObject = stream;
+    video.muted = true;
+    await new Promise((resolve, reject) => {
+      video.onloadedmetadata = () => resolve();
+      video.onerror = () => reject(new Error("video error"));
+      video.play().catch(reject);
+    });
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(video, 0, 0);
+    if (highlight) {
+      const scaleX = canvas.width / window.innerWidth;
+      const scaleY = canvas.height / window.innerHeight;
+      const x = highlight.left * scaleX;
+      const y = highlight.top * scaleY;
+      const w = highlight.width * scaleX;
+      const h = highlight.height * scaleY;
+      ctx.strokeStyle = "rgba(37,99,235,0.95)";
+      ctx.lineWidth = 3;
+      ctx.fillStyle = "rgba(37,99,235,0.12)";
+      ctx.fillRect(x, y, w, h);
+      ctx.strokeRect(x, y, w, h);
+      ctx.fillStyle = "rgba(37,99,235,0.95)";
+      ctx.font = `bold ${Math.max(11, 13 * scaleX)}px sans-serif`;
+      ctx.fillText("clicked here", Math.max(0, x), Math.max(12 * scaleY, y - 6 * scaleY));
+    }
+    return await new Promise((resolve) => {
+      canvas.toBlob((blob) => resolve(blob), "image/png");
+    });
+  } catch {
+    return null;
+  } finally {
+    for (const track of stream.getTracks()) track.stop();
+  }
+}
+
 // browser/src/fiber.ts
 var INTERNAL_NAMES = /* @__PURE__ */ new Set([
   // React internals
@@ -452,24 +504,49 @@ var LiveDevOverlay = class {
           elementText ? `**Element text:** ${elementText}` : ""
         ].filter(Boolean).join("\n");
         const { endpoint } = getConfig();
+        const elRect = el.getBoundingClientRect();
+        this.closePanel();
+        const meta = {
+          title: prompt.slice(0, 60),
+          body,
+          source: {
+            componentName: source.componentName,
+            fileName: source.fileName,
+            lineNumber: source.lineNumber,
+            parentChain: source.parentChain,
+            url: location.href
+          }
+        };
+        const blob = await new Promise((resolve) => {
+          requestAnimationFrame(() => {
+            captureViewport({
+              top: elRect.top,
+              left: elRect.left,
+              width: elRect.width,
+              height: elRect.height
+            }).then(resolve).catch(() => resolve(null));
+          });
+        });
         console.log("[livedev] submitting issue to", endpoint);
         try {
-          const res = await fetch(endpoint, {
-            method: "POST",
-            credentials: "same-origin",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              title: prompt.slice(0, 60),
-              body,
-              source: {
-                componentName: source.componentName,
-                fileName: source.fileName,
-                lineNumber: source.lineNumber,
-                parentChain: source.parentChain,
-                url: location.href
-              }
-            })
-          });
+          let res;
+          if (blob) {
+            const fd = new FormData();
+            fd.append("meta", JSON.stringify(meta));
+            fd.append("screenshot", blob, "screenshot.png");
+            res = await fetch(endpoint, {
+              method: "POST",
+              credentials: "same-origin",
+              body: fd
+            });
+          } else {
+            res = await fetch(endpoint, {
+              method: "POST",
+              credentials: "same-origin",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(meta)
+            });
+          }
           if (res.status === 401 || res.status === 403) {
             this.showToast("warn", "Live-Dev: not authorized to file issues");
           } else if (res.ok) {
@@ -486,7 +563,6 @@ var LiveDevOverlay = class {
           console.warn("[livedev] submit error:", err);
           this.showToast("error", "Live-Dev: network error");
         }
-        this.closePanel();
       }
     });
   }

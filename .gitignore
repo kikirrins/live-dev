@@ -10,6 +10,8 @@ dist
 coverage
 packages/bridge/data
 packages/bridge/logs
+.livedev-screenshots/
 .mcp.json
 .playwright-mcp/
 .claude/settings.local.json
+modules/target-app/tsconfig.tsbuildinfo
