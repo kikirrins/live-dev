@@ -2,7 +2,10 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
-    "jsx": "preserve"
+    "jsx": "preserve",
+    "paths": {
+      "@livedev/whitelist": ["../whitelist/src/index.ts"]
+    }
   },
-  "include": ["src/**/*.ts"]
+  "include": ["browser/src/**/*.ts", "react/**/*.tsx"]
 }

@@ -1,65 +1,116 @@
 import { serve } from "@hono/node-server";
 import { Octokit } from "@octokit/rest";
 import { Hono } from "hono";
-import { isAllowed, loadWhitelist } from "@kikirrin/livedev-next/server";
+import { cors } from "hono/cors";
+import { timingSafeEqual, createHash } from "node:crypto";
+import { isAllowed, loadWhitelist } from "@livedev/whitelist/server";
 
+const PAT = process.env.LIVEDEV_GITHUB_PAT ?? "";
+const REPO = process.env.LIVEDEV_GITHUB_REPO ?? "";
+const SERVICE_TOKEN = process.env.LIVEDEV_SERVICE_TOKEN ?? "";
+const ALLOWED_ORIGINS = (process.env.LIVEDEV_ALLOWED_ORIGINS ?? "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+if (!PAT) console.warn("[livedev] LIVEDEV_GITHUB_PAT not set — requests will 500");
+if (!REPO) console.warn("[livedev] LIVEDEV_GITHUB_REPO not set — requests will 500");
+if (!SERVICE_TOKEN) console.warn("[livedev] LIVEDEV_SERVICE_TOKEN not set — requests will 500");
+
+function constantTimeEqual(a: string, b: string): boolean {
+  const ah = createHash("sha256").update(a).digest();
+  const bh = createHash("sha256").update(b).digest();
+  return ah.length === bh.length && timingSafeEqual(ah, bh);
+}
+
+const octokit = new Octokit({ auth: PAT });
 const app = new Hono();
 
+app.use(
+  "*",
+  cors({
+    origin: ALLOWED_ORIGINS.length > 0 ? ALLOWED_ORIGINS : [],
+    allowHeaders: ["Content-Type", "Authorization", "X-Livedev-User"],
+    allowMethods: ["POST", "OPTIONS"],
+  }),
+);
+
+let labelEnsured = false;
+async function ensureLabel(owner: string, repo: string): Promise<void> {
+  if (labelEnsured) return;
+  labelEnsured = true;
+  try {
+    await octokit.issues.createLabel({
+      owner,
+      repo,
+      name: "live-dev",
+      color: "2563eb",
+      description: "Change request from Live-Dev overlay",
+    });
+  } catch (err) {
+    const status = (err as { status?: number })?.status;
+    if (status !== 422) {
+      console.warn("[livedev] ensureLabel failed:", err);
+    }
+  }
+}
+
 app.post("/issues", async (c) => {
-  // --- Service token (shared app PAT) ---
+  if (!PAT || !REPO || !SERVICE_TOKEN) {
+    return c.json({ error: "service_misconfigured" }, 500);
+  }
+
   const authHeader = c.req.header("Authorization");
   if (!authHeader?.startsWith("Bearer ")) {
-    return c.json({ error: "missing_token" }, 401);
+    return c.json({ error: "missing_service_token" }, 401);
   }
-  const pat = authHeader.slice(7);
+  const token = authHeader.slice(7);
+  if (!constantTimeEqual(token, SERVICE_TOKEN)) {
+    return c.json({ error: "invalid_service_token" }, 401);
+  }
 
-  // --- Caller identity (app user id, provided by the consumer app server) ---
   const userId = c.req.header("X-Livedev-User");
   if (!userId) {
     return c.json({ error: "missing_user" }, 401);
   }
 
-  // --- Repo resolution ---
-  const repoHeader =
-    c.req.header("X-Github-Repo") ?? process.env.LIVEDEV_GITHUB_REPO;
-  if (!repoHeader) {
-    return c.json({ error: "missing_repo" }, 400);
-  }
-  const slashIndex = repoHeader.indexOf("/");
+  const slashIndex = REPO.indexOf("/");
   if (slashIndex === -1) {
-    return c.json({ error: "invalid_repo_format" }, 400);
+    return c.json({ error: "invalid_repo_config" }, 500);
   }
-  const owner = repoHeader.slice(0, slashIndex);
-  const repo = repoHeader.slice(slashIndex + 1);
+  const owner = REPO.slice(0, slashIndex);
+  const repo = REPO.slice(slashIndex + 1);
 
-  // --- Body parsing ---
-  let body: { title: string; body: string; labels?: string[] };
+  let body: { title?: string; body?: string };
   try {
     body = await c.req.json();
   } catch {
     return c.json({ error: "invalid_json" }, 400);
   }
-  const { title, body: issueBody, labels } = body;
+  const title = typeof body.title === "string" ? body.title.slice(0, 200) : "";
+  const issueBody = typeof body.body === "string" ? body.body.slice(0, 10000) : "";
   if (!title || !issueBody) {
     return c.json({ error: "missing_title_or_body" }, 400);
   }
 
-  // --- Whitelist check ---
   const wl = loadWhitelist();
   if (!isAllowed(userId, wl)) {
     return c.json({ error: "not_whitelisted" }, 403);
   }
 
-  // --- Issue creation ---
-  const octokit = new Octokit({ auth: pat });
+  await ensureLabel(owner, repo);
+
   try {
     const { data } = await octokit.issues.create({
       owner,
       repo,
       title,
       body: issueBody,
-      labels: labels ?? ["live-dev"],
+      labels: ["live-dev"],
     });
+    console.log(
+      `[livedev] issue #${data.number} created by userId=${userId} repo=${REPO}`,
+    );
     return c.json({ html_url: data.html_url, number: data.number }, 201);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -67,6 +118,8 @@ app.post("/issues", async (c) => {
   }
 });
 
+app.get("/health", (c) => c.json({ ok: true }));
+
 const port = Number(process.env.PORT ?? 8787);
 serve({ fetch: app.fetch, port });
-console.log(`[livedev-backend] listening on :${port}`);
+console.log(`[livedev] issues-service listening on :${port}`);

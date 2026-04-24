@@ -3,7 +3,7 @@
  * and inlines the livedev whitelist as NEXT_PUBLIC_LIVEDEV_WHITELIST.
  *
  * Usage:
- *   const withLiveDev = require("@kikirrin/livedev-next/webpack");
+ *   const withLiveDev = require("@livedev/overlay-client/webpack");
  *   module.exports = withLiveDev(nextConfig);
  *
  * Or with other wrappers:

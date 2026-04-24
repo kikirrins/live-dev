@@ -55,4 +55,28 @@ export const OVERLAY_CSS = `
     border: 1px solid #e5e7eb;
   }
   .livedev-screenshot img { display: block; width: 100%; }
+  .livedev-toast-stack {
+    position: fixed; bottom: 72px; right: 16px;
+    display: flex; flex-direction: column-reverse; gap: 8px;
+    z-index: 2147483003;
+  }
+  .livedev-toast {
+    padding: 10px 14px; border-radius: 8px; color: #fff;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+    min-width: 220px; max-width: 360px;
+    font: 500 13px -apple-system, system-ui, sans-serif;
+    animation: livedev-toast-in 160ms ease-out;
+  }
+  .livedev-toast[data-kind="success"] { background: #10b981; }
+  .livedev-toast[data-kind="error"] { background: #ef4444; }
+  .livedev-toast[data-kind="warn"] { background: #f59e0b; }
+  .livedev-toast a { color: inherit; text-decoration: underline; margin-left: 8px; }
+  @keyframes livedev-toast-in {
+    from { transform: translateY(8px); opacity: 0; }
+    to   { transform: translateY(0);   opacity: 1; }
+  }
+  @keyframes livedev-toast-out {
+    from { transform: translateY(0);   opacity: 1; }
+    to   { transform: translateY(8px); opacity: 0; }
+  }
 `;

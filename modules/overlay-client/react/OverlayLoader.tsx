@@ -1,17 +1,23 @@
 "use client";
 
 import { useEffect } from "react";
-import { isAllowed } from "./whitelist";
+import { isAllowed } from "@livedev/whitelist";
 
 interface OverlayLoaderProps {
   /**
    * Identifier of the currently signed-in app user (email, user id, etc.).
    * Compared against `allowedUsers` in livedev.whitelist.json.
-   * If omitted or not whitelisted, the overlay will not load.
+   * If omitted or not whitelisted, the overlay does not load.
    */
   userId?: string | null;
-  githubToken?: string;
-  githubRepo?: string;
+  /**
+   * Host path that handles overlay submissions. Must be a same-origin route
+   * that authenticates the session and forwards to the livedev issues service.
+   * Defaults to "/api/livedev/issues".
+   */
+  endpoint?: string;
+  /** Path from which to load the overlay bundle. Defaults to "/livedev-overlay.js". */
+  src?: string;
 }
 
 function parseAllowedUsers(): string[] {
@@ -27,8 +33,8 @@ function parseAllowedUsers(): string[] {
 
 export function OverlayLoader({
   userId,
-  githubToken,
-  githubRepo,
+  endpoint,
+  src,
 }: OverlayLoaderProps = {}) {
   useEffect(() => {
     const enabled =
@@ -44,23 +50,18 @@ export function OverlayLoader({
       return;
     }
 
-    const token = githubToken ?? process.env.NEXT_PUBLIC_GITHUB_TOKEN ?? "";
-    const repo = githubRepo ?? process.env.NEXT_PUBLIC_GITHUB_REPO ?? "";
-
     (window as any).__LIVEDEV_OVERLAY__ = true;
-    (window as any).__LIVEDEV_GITHUB__ = {
-      token,
-      repo,
+    (window as any).__LIVEDEV__ = {
+      endpoint: endpoint ?? "/api/livedev/issues",
       userId,
-      allowedUsers,
     };
 
     const script = document.createElement("script");
     script.type = "module";
-    script.src = "/livedev-overlay.js";
+    script.src = src ?? "/livedev-overlay.js";
     script.defer = true;
     document.head.appendChild(script);
-  }, [userId, githubToken, githubRepo]);
+  }, [userId, endpoint, src]);
 
   return null;
 }

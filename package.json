@@ -7,8 +7,8 @@
     "dev": "pnpm -r --parallel run dev",
     "build": "pnpm -r run build",
     "dev:target": "pnpm --filter target-app dev",
-    "dev:overlay": "pnpm --filter overlay dev",
-    "dev:backend": "pnpm --filter backend dev"
+    "dev:overlay": "pnpm --filter @livedev/overlay-client dev",
+    "dev:issues-service": "pnpm --filter @livedev/issues-service dev"
   },
   "engines": {
     "node": ">=20.11.0"

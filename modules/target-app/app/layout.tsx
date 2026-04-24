@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { OverlayLoader } from "@live-dev/next";
+import { OverlayLoader } from "@livedev/overlay-client";
+import { getCurrentUser } from "@/app/lib/session";
 
 export const metadata: Metadata = {
   title: "Live-Dev target app",
@@ -12,11 +13,12 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const user = getCurrentUser();
   return (
     <html lang="en">
       <body>
         {children}
-        <OverlayLoader />
+        <OverlayLoader userId={user?.id} />
       </body>
     </html>
   );

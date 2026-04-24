@@ -2,7 +2,7 @@ var __defProp = Object.defineProperty;
 var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
 var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
 
-// src/fiber.ts
+// browser/src/fiber.ts
 var INTERNAL_NAMES = /* @__PURE__ */ new Set([
   // React internals
   "Suspense",
@@ -189,7 +189,7 @@ function extractSourceInfo(node) {
   };
 }
 
-// src/styles.ts
+// browser/src/styles.ts
 var OVERLAY_CSS = `
   .livedev-root, .livedev-root * { box-sizing: border-box; }
   .livedev-toggle {
@@ -247,28 +247,39 @@ var OVERLAY_CSS = `
     border: 1px solid #e5e7eb;
   }
   .livedev-screenshot img { display: block; width: 100%; }
+  .livedev-toast-stack {
+    position: fixed; bottom: 72px; right: 16px;
+    display: flex; flex-direction: column-reverse; gap: 8px;
+    z-index: 2147483003;
+  }
+  .livedev-toast {
+    padding: 10px 14px; border-radius: 8px; color: #fff;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+    min-width: 220px; max-width: 360px;
+    font: 500 13px -apple-system, system-ui, sans-serif;
+    animation: livedev-toast-in 160ms ease-out;
+  }
+  .livedev-toast[data-kind="success"] { background: #10b981; }
+  .livedev-toast[data-kind="error"] { background: #ef4444; }
+  .livedev-toast[data-kind="warn"] { background: #f59e0b; }
+  .livedev-toast a { color: inherit; text-decoration: underline; margin-left: 8px; }
+  @keyframes livedev-toast-in {
+    from { transform: translateY(8px); opacity: 0; }
+    to   { transform: translateY(0);   opacity: 1; }
+  }
+  @keyframes livedev-toast-out {
+    from { transform: translateY(0);   opacity: 1; }
+    to   { transform: translateY(8px); opacity: 0; }
+  }
 `;
 
-// src/index.ts
-function getGitHubConfig() {
-  const gh = typeof window !== "undefined" && window.__LIVEDEV_GITHUB__;
-  return gh ?? { token: "", repo: "" };
-}
-var labelEnsured = false;
-async function ensureLabel(gh) {
-  if (labelEnsured) return;
-  try {
-    await fetch(`https://api.github.com/repos/${gh.repo}/labels`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${gh.token}`
-      },
-      body: JSON.stringify({ name: "live-dev", color: "2563eb", description: "Change request from Live-Dev overlay" })
-    });
-  } catch {
-  }
-  labelEnsured = true;
+// browser/src/index.ts
+function getConfig() {
+  const cfg = typeof window !== "undefined" && window.__LIVEDEV__;
+  return {
+    endpoint: cfg?.endpoint ?? "/api/livedev/issues",
+    userId: cfg?.userId
+  };
 }
 function getDirectText(el) {
   let text = "";
@@ -289,6 +300,7 @@ var LiveDevOverlay = class {
     __publicField(this, "panel", null);
     __publicField(this, "currentTarget", null);
     __publicField(this, "panelGeneration", 0);
+    __publicField(this, "toastStack", null);
     __publicField(this, "onMouseMove", (e) => {
       if (!this.active) return;
       const el = document.elementFromPoint(e.clientX, e.clientY);
@@ -425,12 +437,6 @@ var LiveDevOverlay = class {
           textarea.focus();
           return;
         }
-        const gh = getGitHubConfig();
-        if (!gh.token || !gh.repo) {
-          console.warn("[livedev] GitHub token or repo not configured");
-          this.closePanel();
-          return;
-        }
         const source = info ?? {
           fileName: "unknown",
           lineNumber: 0,
@@ -445,29 +451,40 @@ var LiveDevOverlay = class {
           `**Page:** ${location.href}`,
           elementText ? `**Element text:** ${elementText}` : ""
         ].filter(Boolean).join("\n");
-        console.log("[livedev] creating GitHub issue");
+        const { endpoint } = getConfig();
+        console.log("[livedev] submitting issue to", endpoint);
         try {
-          await ensureLabel(gh);
-          const res = await fetch(`https://api.github.com/repos/${gh.repo}/issues`, {
+          const res = await fetch(endpoint, {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${gh.token}`
-            },
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               title: prompt.slice(0, 60),
               body,
-              labels: ["live-dev"]
+              source: {
+                componentName: source.componentName,
+                fileName: source.fileName,
+                lineNumber: source.lineNumber,
+                parentChain: source.parentChain,
+                url: location.href
+              }
             })
           });
-          const data = await res.json();
-          if (res.ok) {
-            console.log("[livedev] issue created:", data.html_url);
+          if (res.status === 401 || res.status === 403) {
+            this.showToast("warn", "Live-Dev: not authorized to file issues");
+          } else if (res.ok) {
+            const data = await res.json().catch(() => ({}));
+            if (data.html_url && data.number) {
+              this.showToast("success", `Issue #${data.number} created`, data.html_url);
+            } else {
+              this.showToast("success", "Issue created");
+            }
           } else {
-            console.warn("[livedev] issue creation failed:", data);
+            this.showToast("error", `Issue creation failed (${res.status})`);
           }
         } catch (err) {
-          console.warn("[livedev] GitHub API error:", err);
+          console.warn("[livedev] submit error:", err);
+          this.showToast("error", "Live-Dev: network error");
         }
         this.closePanel();
       }
@@ -479,9 +496,45 @@ var LiveDevOverlay = class {
       this.panel = null;
     }
   }
+  ensureToastStack() {
+    if (!this.toastStack || !document.body.contains(this.toastStack)) {
+      this.toastStack = document.createElement("div");
+      this.toastStack.className = "livedev-toast-stack";
+      document.body.appendChild(this.toastStack);
+    }
+    return this.toastStack;
+  }
+  showToast(kind, message, href) {
+    const stack = this.ensureToastStack();
+    const toast = document.createElement("div");
+    toast.className = "livedev-toast";
+    toast.dataset.kind = kind;
+    toast.textContent = message;
+    toast.addEventListener("click", (e) => e.stopPropagation());
+    if (href) {
+      const link = document.createElement("a");
+      link.textContent = "View issue \u2192";
+      link.href = href;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      toast.appendChild(link);
+    }
+    stack.appendChild(toast);
+    const delay = kind === "error" ? 6e3 : 3500;
+    setTimeout(() => {
+      toast.style.animation = "livedev-toast-out 200ms ease-in forwards";
+      setTimeout(() => {
+        toast.remove();
+        if (stack.childElementCount === 0) {
+          stack.remove();
+          if (this.toastStack === stack) this.toastStack = null;
+        }
+      }, 200);
+    }, delay);
+  }
 };
 function shortenPath(path) {
-  const marker = "/packages/";
+  const marker = "/modules/";
   const idx = path.indexOf(marker);
   if (idx >= 0) return path.slice(idx + 1);
   const parts = path.split("/");

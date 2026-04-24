@@ -1,41 +1,92 @@
 # Live-Dev
 
-A point-and-prompt dev interface for web apps. Clients click a component in a running app, describe a change in plain language, and a Claude Code agent runs in a tmux pane to produce a branch + PR + Railway preview.
+Point-and-prompt change requests for web apps. A user clicks any element in a running app, describes the change they want, and a GitHub issue is created with file + line context. An agent can later pick that issue up and produce a PR.
 
-## Packages
+This repo is **not an npm package.** It is a template + specification. Copy the modules you need into your host app (the way you'd integrate Stripe), wire up the credentials, and ship.
 
-- `packages/target-app` — Next.js 15 sample app (the testbed)
-- `packages/overlay` — injectable element-picker + prompt panel
-- `packages/backend` — orchestrator, dashboard UI, tmux runner (Phase 2+)
+## Integration (for humans)
 
-## Run
+Four components, three tiers:
+
+```
+Browser (overlay-client)  ──►  Host app (host-proxy)  ──►  Issues service  ──►  GitHub
+       no credentials          session-auth, forwards         holds PAT
+```
+
+- **`modules/overlay-client`** — the browser UI + React mount. Zero credentials in the browser. Posts same-origin.
+- **`modules/host-proxy`** — copy the Next.js or Express handler into your host app. Uses your existing auth.
+- **`modules/issues-service`** — standalone sidecar holding the GitHub credential. Service-token auth + CORS allowlist.
+- **`modules/whitelist`** — shared `livedev.whitelist.json` format + helpers.
+- **`modules/credentials`** — setup docs for the PAT (and forward-compatible path to a GitHub App).
+
+A working reference host lives in `modules/target-app`.
+
+## Agentic RFP
+
+The block below tells an AI agent what to copy and in what order. Each module carries a more detailed `INTEGRATION.md` with machine-readable host_changes, env_vars, and verification steps.
+
+```agentic-rfp
+version: 1
+product: livedev
+summary: >
+  Click-to-file GitHub issues from any page in a web app. Integrate as a
+  fullstack package: browser bundle, host-side proxy route, and an issues
+  service that holds the GitHub credential. The browser never holds a secret.
+modules:
+  - id: overlay-client
+    role: frontend
+    source_path: modules/overlay-client
+    integration_doc: modules/overlay-client/INTEGRATION.md
+  - id: host-proxy
+    role: backend
+    source_path: modules/host-proxy
+    integration_doc: modules/host-proxy/INTEGRATION.md
+  - id: issues-service
+    role: sidecar
+    source_path: modules/issues-service
+    integration_doc: modules/issues-service/INTEGRATION.md
+  - id: whitelist
+    role: shared
+    source_path: modules/whitelist
+  - id: credentials
+    role: setup
+    source_path: modules/credentials
+    integration_doc: modules/credentials/INTEGRATION.md
+install_order:
+  - credentials
+  - issues-service
+  - host-proxy
+  - overlay-client
+security_invariants:
+  - "No GitHub credential in the browser or in any bundle reachable by the browser."
+  - "Host-proxy authenticates the session using the host's existing auth, not a client-sent id."
+  - "Issues-service verifies a shared service token in constant time before doing anything else."
+  - "Whitelist checks are authoritative on the server; any client-side check is UX only."
+verification: modules/target-app/README.md
+```
+
+## Modules
+
+| Module | Role | Doc |
+|---|---|---|
+| `modules/overlay-client` | frontend | [`INTEGRATION.md`](modules/overlay-client/INTEGRATION.md) |
+| `modules/host-proxy` | backend | [`INTEGRATION.md`](modules/host-proxy/INTEGRATION.md) |
+| `modules/issues-service` | sidecar | [`INTEGRATION.md`](modules/issues-service/INTEGRATION.md) |
+| `modules/whitelist` | shared | [`README.md`](modules/whitelist/README.md) |
+| `modules/credentials` | setup | [`INTEGRATION.md`](modules/credentials/INTEGRATION.md) |
+
+## Reference host
+
+`modules/target-app` is a small Next.js 15 app that demonstrates all four pieces wired together. Its mock session at `app/lib/session.ts` stands in for real auth.
 
 ```bash
 pnpm install
+cp modules/target-app/.env.local.example modules/target-app/.env.local
+cp modules/issues-service/.env.example   modules/issues-service/.env
+# fill LIVEDEV_GITHUB_PAT and LIVEDEV_GITHUB_REPO in modules/issues-service/.env
 pnpm dev
+# target-app  :3000
+# issues-svc  :8787
 ```
 
-- target-app: http://localhost:3000
-- backend dashboard (Phase 2+): http://localhost:3001
-
-## Whitelist
-
-Access to the livedev overlay is gated by `livedev.whitelist.json` at the consumer app's root:
-
-```json
-{
-  "allowedUsers": ["admin@example.com", "another-admin@example.com"]
-}
-```
-
-- **App-user identity, not GitHub identity.** The configured GitHub PAT is the app's shared service credential — it authorises issue creation but doesn't identify the caller. The caller is identified by the consumer app's own session (email, user id, whatever the app already uses to mark an admin).
-- **Fail-closed:** an empty or missing `allowedUsers` array means nobody is allowed.
-- **Two enforcement layers:** the consumer app passes the current session user to `<OverlayLoader userId={...} />`; the overlay script only loads if that id is whitelisted, and the overlay bundle re-checks before posting to GitHub. The backend `/issues` endpoint reads `X-Livedev-User` from its caller and rejects non-whitelisted ids.
-- **Build-time inlining:** the list is inlined into the client bundle as `NEXT_PUBLIC_LIVEDEV_WHITELIST` by the `withLiveDev` Next.js wrapper, so `next.config.js` must use `withLiveDev(...)` for the frontend gate to pick up the file. Restart `next dev` after editing the JSON.
-- **Backend consumers** import the loader directly via `@kikirrin/livedev-next/server` (`loadWhitelist`, `isAllowed`).
-
-## Docs
-
-- Overview: `.claude/files/overview.md`
-- Backlog: `.claude/files/backlog.md`
-- Current sprint: `.claude/files/sprint.md`
+Then click the `● Live-Dev` toggle on `http://localhost:3000`, pick an element, describe a change, submit. The issue appears in the configured repo with label `live-dev`.

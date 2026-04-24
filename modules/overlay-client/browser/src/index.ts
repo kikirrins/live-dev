@@ -1,33 +1,17 @@
 import { extractSourceInfo } from "./fiber";
 import { OVERLAY_CSS } from "./styles";
 
-interface GitHubConfig {
-  token: string;
-  repo: string;
+interface LivedevConfig {
+  endpoint: string;
   userId?: string;
-  allowedUsers?: string[];
 }
 
-function getGitHubConfig(): GitHubConfig {
-  const gh = typeof window !== "undefined" && (window as any).__LIVEDEV_GITHUB__;
-  return gh ?? { token: "", repo: "" };
-}
-
-let labelEnsured = false;
-
-async function ensureLabel(gh: GitHubConfig): Promise<void> {
-  if (labelEnsured) return;
-  try {
-    await fetch(`https://api.github.com/repos/${gh.repo}/labels`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${gh.token}`,
-      },
-      body: JSON.stringify({ name: "live-dev", color: "2563eb", description: "Change request from Live-Dev overlay" }),
-    });
-  } catch {}
-  labelEnsured = true;
+function getConfig(): LivedevConfig {
+  const cfg = typeof window !== "undefined" && (window as any).__LIVEDEV__;
+  return {
+    endpoint: cfg?.endpoint ?? "/api/livedev/issues",
+    userId: cfg?.userId,
+  };
 }
 
 /** Get only direct text content of an element, ignoring child elements */
@@ -50,6 +34,7 @@ class LiveDevOverlay {
   private panel: HTMLDivElement | null = null;
   private currentTarget: Element | null = null;
   private panelGeneration = 0;
+  private toastStack: HTMLElement | null = null;
 
   constructor() {
     this.injectStyles();
@@ -150,7 +135,6 @@ class LiveDevOverlay {
     if (!this.active) return;
     const target = e.target as Element | null;
     if (!target || this.isOverlayNode(target)) return;
-    // Prevent default behavior (links, buttons, forms, etc.)
     e.preventDefault();
     e.stopPropagation();
     e.stopImmediatePropagation();
@@ -213,12 +197,6 @@ class LiveDevOverlay {
           textarea.focus();
           return;
         }
-        const gh = getGitHubConfig();
-        if (!gh.token || !gh.repo) {
-          console.warn("[livedev] GitHub token or repo not configured");
-          this.closePanel();
-          return;
-        }
 
         const source = info ?? {
           fileName: "unknown",
@@ -230,40 +208,45 @@ class LiveDevOverlay {
           `**Change request:** ${prompt}`,
           "",
           `**Component:** \`${source.componentName}\` in \`${source.fileName}:${source.lineNumber}\``,
-          `**Parent chain:** ${source.parentChain.join(" > ") || "\u2014"}`,
+          `**Parent chain:** ${source.parentChain.join(" > ") || "—"}`,
           `**Page:** ${location.href}`,
           elementText ? `**Element text:** ${elementText}` : "",
         ].filter(Boolean).join("\n");
 
-        console.log("[livedev] creating GitHub issue");
+        const { endpoint } = getConfig();
+        console.log("[livedev] submitting issue to", endpoint);
         try {
-          const { userId, allowedUsers } = gh as { userId?: string; allowedUsers?: string[] };
-          if (!userId || !allowedUsers?.includes(userId)) {
-            console.warn("[livedev] issue creation blocked: user not in whitelist");
-            this.closePanel();
-            return;
-          }
-          await ensureLabel(gh);
-          const res = await fetch(`https://api.github.com/repos/${gh.repo}/issues`, {
+          const res = await fetch(endpoint, {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${gh.token}`,
-            },
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               title: prompt.slice(0, 60),
               body,
-              labels: ["live-dev"],
+              source: {
+                componentName: source.componentName,
+                fileName: source.fileName,
+                lineNumber: source.lineNumber,
+                parentChain: source.parentChain,
+                url: location.href,
+              },
             }),
           });
-          const data = await res.json();
-          if (res.ok) {
-            console.log("[livedev] issue created:", data.html_url);
+          if (res.status === 401 || res.status === 403) {
+            this.showToast("warn", "Live-Dev: not authorized to file issues");
+          } else if (res.ok) {
+            const data = await res.json().catch(() => ({}));
+            if (data.html_url && data.number) {
+              this.showToast("success", `Issue #${data.number} created`, data.html_url);
+            } else {
+              this.showToast("success", "Issue created");
+            }
           } else {
-            console.warn("[livedev] issue creation failed:", data);
+            this.showToast("error", `Issue creation failed (${res.status})`);
           }
         } catch (err) {
-          console.warn("[livedev] GitHub API error:", err);
+          console.warn("[livedev] submit error:", err);
+          this.showToast("error", "Live-Dev: network error");
         }
         this.closePanel();
       }
@@ -276,10 +259,48 @@ class LiveDevOverlay {
       this.panel = null;
     }
   }
+
+  private ensureToastStack(): HTMLElement {
+    if (!this.toastStack || !document.body.contains(this.toastStack)) {
+      this.toastStack = document.createElement("div");
+      this.toastStack.className = "livedev-toast-stack";
+      document.body.appendChild(this.toastStack);
+    }
+    return this.toastStack;
+  }
+
+  private showToast(kind: "success" | "error" | "warn", message: string, href?: string) {
+    const stack = this.ensureToastStack();
+    const toast = document.createElement("div");
+    toast.className = "livedev-toast";
+    toast.dataset.kind = kind;
+    toast.textContent = message;
+    toast.addEventListener("click", (e) => e.stopPropagation());
+    if (href) {
+      const link = document.createElement("a");
+      link.textContent = "View issue →";
+      link.href = href;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      toast.appendChild(link);
+    }
+    stack.appendChild(toast);
+    const delay = kind === "error" ? 6000 : 3500;
+    setTimeout(() => {
+      toast.style.animation = "livedev-toast-out 200ms ease-in forwards";
+      setTimeout(() => {
+        toast.remove();
+        if (stack.childElementCount === 0) {
+          stack.remove();
+          if (this.toastStack === stack) this.toastStack = null;
+        }
+      }, 200);
+    }, delay);
+  }
 }
 
 function shortenPath(path: string): string {
-  const marker = "/packages/";
+  const marker = "/modules/";
   const idx = path.indexOf(marker);
   if (idx >= 0) return path.slice(idx + 1);
   const parts = path.split("/");
