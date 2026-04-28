@@ -99,7 +99,16 @@ export function extractSourceInfo(node: Element): SourceInfo | null {
     if (src) {
       const [fileName, lineStr] = src.split(":");
       const lineNumber = parseInt(lineStr ?? "0", 10);
-      const componentName = comp ?? "unknown";
+      let componentName = comp ?? null;
+      if (!componentName) {
+        let walk = getFiberFromNodeOrAncestor(node);
+        while (walk) {
+          const name = getComponentName(walk);
+          if (name && isUserComponent(name)) { componentName = name; break; }
+          walk = walk.return;
+        }
+        componentName = componentName ?? "unknown";
+      }
 
       // Build parent chain from DOM attributes
       const domParents: string[] = [];
@@ -172,7 +181,7 @@ export function extractSourceInfo(node: Element): SourceInfo | null {
     let fallbackFiber = fiber;
     while (fallbackFiber) {
       const name = getComponentName(fallbackFiber);
-      if (name && /^[A-Z]/.test(name)) { componentName = name; break; }
+      if (name && isUserComponent(name)) { componentName = name; break; }
       fallbackFiber = fallbackFiber.return;
     }
   }

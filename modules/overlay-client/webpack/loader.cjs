@@ -78,17 +78,36 @@ module.exports = function livedevLoader(source) {
       const RHS_TESTS = [
         /^(?:\([^)]*\)|[A-Za-z_][A-Za-z0-9_]*)\s*(?::\s*[^=]+)?\s*=>/, // arrow
         /^function\b/, // const X = function
-        /^[A-Za-z_][A-Za-z0-9_$.]*\s*(?:<[^>(]*>\s*)?\(/, // single-line HOC call
       ];
 
-      let matched = RHS_TESTS.some((re) => re.test(rest));
+      // HOC call with optional generics — uses a balanced-angle-bracket scanner
+      // to handle nested generics like forwardRef<X, Y<Z>>(
+      const isHOCCallStart = (text) => {
+        const m = text.match(/^([A-Za-z_][A-Za-z0-9_$.]*)\s*/);
+        if (!m) return false;
+        let pos = m[0].length;
+        if (text[pos] === "<") {
+          let depth = 1;
+          pos++;
+          while (pos < text.length && depth > 0) {
+            if (text[pos] === "<") depth++;
+            else if (text[pos] === ">") depth--;
+            pos++;
+          }
+          if (depth !== 0) return false;
+          while (pos < text.length && /\s/.test(text[pos])) pos++;
+        }
+        return text[pos] === "(";
+      };
+
+      let matched = RHS_TESTS.some((re) => re.test(rest)) || isHOCCallStart(rest);
 
       // Fix A: if no match on this line, try joining continuation lines (multi-line type args)
       if (!matched) {
         let joined = rest;
         for (let k = 1; k <= 10 && i + k < lines.length; k++) {
           joined += " " + lines[i + k].trim();
-          if (RHS_TESTS.some((re) => re.test(joined))) {
+          if (RHS_TESTS.some((re) => re.test(joined)) || isHOCCallStart(joined)) {
             matched = true;
             break;
           }

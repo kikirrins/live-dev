@@ -34,6 +34,12 @@ export const OVERLAY_CSS = `
     word-break: break-all;
   }
   .livedev-panel .meta .k { color: #6b7280; }
+  .livedev-panel input.title {
+    width: 100%; margin-bottom: 8px;
+    border: 1px solid #d1d5db; border-radius: 8px; padding: 10px;
+    font: 500 13px -apple-system, system-ui, sans-serif;
+  }
+  .livedev-panel input.title:focus { outline: 2px solid #2563eb; outline-offset: 0; }
   .livedev-panel textarea {
     width: 100%; min-height: 90px; resize: vertical;
     border: 1px solid #d1d5db; border-radius: 8px; padding: 10px;

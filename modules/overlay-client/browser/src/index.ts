@@ -134,7 +134,15 @@ class LiveDevOverlay {
 
   private onClick = (e: MouseEvent) => {
     if (!this.active) return;
-    const target = e.target as Element | null;
+    // Prefer the mousemove-tracked target — :active transforms can shift
+    // an element between mousedown and click, so e.target / elementFromPoint
+    // at click time may resolve to whatever's behind the shifted element.
+    const tracked = this.currentTarget && !this.isOverlayNode(this.currentTarget)
+      ? this.currentTarget
+      : null;
+    const target = tracked
+      ?? (document.elementFromPoint(e.clientX, e.clientY) as Element | null)
+      ?? (e.target as Element | null);
     if (!target || this.isOverlayNode(target)) return;
     e.preventDefault();
     e.stopPropagation();
@@ -171,7 +179,8 @@ class LiveDevOverlay {
         ${safeText ? `<div><span class="k">text:</span> ${safeText}</div>` : ""}
         <div><span class="k">url:</span> ${safeUrl}</div>
       </div>
-      <textarea placeholder="e.g. make this button bigger and use our brand blue"></textarea>
+      <input type="text" class="title" placeholder="Short title (e.g. Make CTA button bigger)" />
+      <textarea placeholder="Describe the change in more detail (optional)"></textarea>
       <div class="actions">
         <button class="secondary" data-action="cancel">Cancel</button>
         <button class="primary" data-action="submit">Submit</button>
@@ -179,8 +188,9 @@ class LiveDevOverlay {
     `;
     this.root.appendChild(this.panel);
 
+    const titleInput = this.panel.querySelector<HTMLInputElement>("input.title")!;
     const textarea = this.panel.querySelector("textarea")!;
-    textarea.focus();
+    titleInput.focus();
 
     this.panel.addEventListener("click", async (ev) => {
       const action = (ev.target as HTMLElement).closest("[data-action]")
@@ -193,9 +203,10 @@ class LiveDevOverlay {
         return;
       }
       if (action === "submit") {
-        const prompt = textarea.value.trim();
-        if (!prompt) {
-          textarea.focus();
+        const title = titleInput.value.trim();
+        const description = textarea.value.trim();
+        if (!title) {
+          titleInput.focus();
           return;
         }
 
@@ -206,8 +217,8 @@ class LiveDevOverlay {
           parentChain: [] as string[],
         };
         const body = [
-          `**Change request:** ${prompt}`,
-          "",
+          description ? `**Change request:** ${description}` : "",
+          description ? "" : "",
           `**Component:** \`${source.componentName}\` in \`${source.fileName}:${source.lineNumber}\``,
           `**Parent chain:** ${source.parentChain.join(" > ") || "—"}`,
           `**Page:** ${location.href}`,
@@ -220,7 +231,7 @@ class LiveDevOverlay {
         this.closePanel();
 
         const meta = {
-          title: prompt.slice(0, 60),
+          title,
           body,
           source: {
             componentName: source.componentName,
