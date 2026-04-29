@@ -134,6 +134,19 @@ class LiveDevOverlay {
 
   private onClick = (e: MouseEvent) => {
     if (!this.active) return;
+
+    // Clicks inside our overlay (panel inputs, Cancel/Submit, toggle) must pass
+    // through to the panel's own delegated handler. Gate on the real event
+    // target — currentTarget holds a stale background element from before the
+    // panel opened (mousemove skips overlay nodes), so falling through would
+    // re-select that element on every input click.
+    const realTarget = (e.target as Element | null)
+      ?? (document.elementFromPoint(e.clientX, e.clientY) as Element | null);
+    if (realTarget && this.isOverlayNode(realTarget)) return;
+
+    // While a panel is open, ignore background page clicks entirely.
+    if (this.panel) return;
+
     // Prefer the mousemove-tracked target — :active transforms can shift
     // an element between mousedown and click, so e.target / elementFromPoint
     // at click time may resolve to whatever's behind the shifted element.
