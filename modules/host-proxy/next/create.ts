@@ -9,6 +9,7 @@ export function createIssuesRoute(opts: {
   maxBytes?: number;
 }): { POST: (req: NextRequest) => Promise<NextResponse> } {
   const maxBytes = opts.maxBytes ?? 10_485_760;
+  const usingDefaultViewerUrl = !opts.buildViewerUrl;
   const buildViewerUrl =
     opts.buildViewerUrl ??
     ((id: string) =>
@@ -47,10 +48,33 @@ export function createIssuesRoute(opts: {
         return NextResponse.json({ error: "screenshot_too_large" }, { status: 413 });
       }
 
-      if (screenshot && opts.store) {
-        const bytes = new Uint8Array(await screenshot.arrayBuffer());
-        const { id } = await opts.store.put(bytes, { ownerId: user.id, createdAt: Date.now() });
-        meta.body = (meta.body ?? "") + "\n\n[View screenshot](" + buildViewerUrl(id) + ")";
+      // Track screenshot pipeline failures so they surface in the response
+      // instead of being silently dropped. A missing screenshot link is
+      // almost always a host config bug (no store wired, no app origin set,
+      // S3 misconfigured) — make it visible.
+      let screenshotWarning: string | null = null;
+
+      if (screenshot) {
+        if (!opts.store) {
+          screenshotWarning = "no_store_configured";
+        } else if (usingDefaultViewerUrl && !process.env.LIVEDEV_APP_ORIGIN) {
+          // Without an absolute origin the link rendered inside the GitHub
+          // issue is relative and dead. Refuse to attach it rather than
+          // ship a broken link.
+          screenshotWarning = "missing_app_origin";
+          console.warn(
+            "[livedev] LIVEDEV_APP_ORIGIN is not set — screenshot link omitted from issue body. Set LIVEDEV_APP_ORIGIN to the host's public origin or pass a custom buildViewerUrl.",
+          );
+        } else {
+          try {
+            const bytes = new Uint8Array(await screenshot.arrayBuffer());
+            const { id } = await opts.store.put(bytes, { ownerId: user.id, createdAt: Date.now() });
+            meta.body = (meta.body ?? "") + "\n\n[View screenshot](" + buildViewerUrl(id) + ")";
+          } catch (err) {
+            screenshotWarning = "store_upload_failed";
+            console.warn("[livedev] screenshot upload failed:", err);
+          }
+        }
       }
 
       const upstream = await fetch(issuesUrl, {
@@ -64,6 +88,21 @@ export function createIssuesRoute(opts: {
       });
 
       const text = await upstream.text();
+      // Inject screenshot_warning into JSON success responses so the client
+      // can toast a soft warning. Don't try to mutate non-JSON or error bodies.
+      if (
+        upstream.ok &&
+        screenshotWarning &&
+        (upstream.headers.get("Content-Type") ?? "").includes("application/json")
+      ) {
+        try {
+          const parsed = JSON.parse(text);
+          parsed.screenshot_warning = screenshotWarning;
+          return NextResponse.json(parsed, { status: upstream.status });
+        } catch {
+          // fall through and return the upstream body verbatim
+        }
+      }
       return new NextResponse(text, {
         status: upstream.status,
         headers: { "Content-Type": upstream.headers.get("Content-Type") ?? "application/json" },
@@ -199,6 +238,14 @@ export function createDiagnosticRoute(opts: {
       };
 
       const resolvedServiceToken = opts.serviceToken ?? process.env.LIVEDEV_SERVICE_TOKEN ?? "";
+      const hasAppOrigin = Boolean(process.env.LIVEDEV_APP_ORIGIN);
+
+      const warnings: string[] = [];
+      if (!hasAppOrigin) {
+        warnings.push(
+          "LIVEDEV_APP_ORIGIN is not set — screenshot links will be omitted from issue bodies.",
+        );
+      }
 
       return NextResponse.json({
         session: { ok: true, userId: user.id },
@@ -211,8 +258,9 @@ export function createDiagnosticRoute(opts: {
         env: {
           LIVEDEV_ISSUES_URL: Boolean(process.env.LIVEDEV_ISSUES_URL),
           LIVEDEV_SERVICE_TOKEN: Boolean(resolvedServiceToken),
-          LIVEDEV_APP_ORIGIN: Boolean(process.env.LIVEDEV_APP_ORIGIN),
+          LIVEDEV_APP_ORIGIN: hasAppOrigin,
         },
+        warnings,
       });
     },
   };

@@ -295,6 +295,18 @@ class LiveDevOverlay {
             } else {
               this.showToast("success", "Issue created");
             }
+            if (data.screenshot_warning) {
+              const reason = String(data.screenshot_warning);
+              const detail =
+                reason === "missing_app_origin"
+                  ? "host missing LIVEDEV_APP_ORIGIN"
+                  : reason === "no_store_configured"
+                    ? "host has no screenshot store"
+                    : reason === "store_upload_failed"
+                      ? "screenshot upload failed"
+                      : reason;
+              this.showToast("warn", `Screenshot not attached (${detail})`);
+            }
           } else {
             this.showToast("error", `Issue creation failed (${res.status})`);
           }
