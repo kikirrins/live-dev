@@ -27,6 +27,14 @@ export function loadWhitelist(cwd?: string): Whitelist {
   return { allowedUsers: [] };
 }
 
+export function isLocalBypass(): boolean {
+  return (
+    process.env.NODE_ENV !== 'production' &&
+    process.env.LIVEDEV_LOCAL_BYPASS === 'true'
+  )
+}
+export const LOCAL_BYPASS_USER_ID = 'local-dev@localhost'
+
 function readWhitelistAt(file: string): Whitelist {
   try {
     const raw = fs.readFileSync(file, "utf-8");

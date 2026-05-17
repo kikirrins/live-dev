@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import { cors } from "hono/cors";
 import { timingSafeEqual, createHash } from "node:crypto";
-import { isAllowed } from "@livedev/whitelist/server";
+import { isAllowed, isLocalBypass, LOCAL_BYPASS_USER_ID } from "@livedev/whitelist/server";
 import type { GitHubClient } from "./gh";
 import { createPRsHandler } from "./prs";
 
@@ -112,7 +112,8 @@ export function createIssuesApp(opts: IssuesAppOptions): Hono {
     }
 
     const wl = opts.loadWhitelist();
-    if (!isAllowed(userId, wl)) {
+    const bypass = isLocalBypass() && userId === LOCAL_BYPASS_USER_ID;
+    if (!bypass && !isAllowed(userId, wl)) {
       return c.json({ error: "not_whitelisted" }, 403);
     }
 

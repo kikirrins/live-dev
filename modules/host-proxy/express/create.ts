@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import { isAllowed, loadWhitelist } from "@livedev/whitelist/server";
+import { isLocalBypass, LOCAL_BYPASS_USER_ID, isAllowed, loadWhitelist } from "@livedev/whitelist/server";
 import type { ScreenshotStore } from "@livedev/screenshots";
 
 type ExpressUser = { id: string } | null;
@@ -17,10 +17,20 @@ export function createIssuesHandler(opts: {
       `${process.env.LIVEDEV_APP_ORIGIN ?? ""}/api/livedev/screenshots/${id}`);
 
   return async (req, res) => {
+    const bypass = isLocalBypass();
     const user = await opts.getUser(req);
-    if (!user) {
+    const userId = user?.id ?? (bypass ? LOCAL_BYPASS_USER_ID : null);
+    if (!userId) {
       res.status(401).json({ error: "unauthenticated" });
       return;
+    }
+
+    if (!bypass) {
+      const wl = loadWhitelist();
+      if (!isAllowed(userId, wl)) {
+        res.status(403).json({ error: "not_whitelisted" });
+        return;
+      }
     }
 
     const issuesUrl = process.env.LIVEDEV_ISSUES_URL;
@@ -43,7 +53,7 @@ export function createIssuesHandler(opts: {
 
       if (opts.store) {
         const bytes = new Uint8Array(file.buffer);
-        const { id } = await opts.store.put(bytes, { ownerId: user.id, createdAt: Date.now() });
+        const { id } = await opts.store.put(bytes, { ownerId: userId, createdAt: Date.now() });
         meta.body = (meta.body ?? "") + "\n\n[View screenshot](" + buildViewerUrl(id) + ")";
       }
     } else {
@@ -55,7 +65,7 @@ export function createIssuesHandler(opts: {
       headers: {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${serviceToken}`,
-        "X-Livedev-User": user.id,
+        "X-Livedev-User": userId,
       },
       body: JSON.stringify({ title: meta.title, body: meta.body, source: meta.source }),
     });

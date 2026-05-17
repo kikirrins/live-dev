@@ -26,7 +26,7 @@ A working reference host lives in `modules/target-app`.
 The block below tells an AI agent what to copy and in what order. Each module carries a more detailed `INTEGRATION.md` with machine-readable host_changes, env_vars, and verification steps.
 
 ```agentic-rfp
-version: 2
+version: 3
 product: livedev
 summary: >
   Click-to-file GitHub issues from any page in a web app. Integrate as a
@@ -77,6 +77,7 @@ security_invariants:
   - "Screenshots are served only through a session-authenticated host route; no public or signed URLs."
   - "Host-proxy and issues-service expose factories with required typed arguments (getUser, store, client); forgetting them fails at compile time."
   - "Issues-service has no side effects on import — serve() runs only from src/main.ts, so the Hono app can be co-mounted inside any host backend."
+  - "LIVEDEV_LOCAL_BYPASS must never resolve true in production; both the env-var check and a NODE_ENV !== 'production' guard are required, and the bypass userId is a fixed constant (LOCAL_BYPASS_USER_ID) — arbitrary X-Livedev-User values are still rejected even when bypass is on."
 verification: modules/target-app/README.md
 ```
 

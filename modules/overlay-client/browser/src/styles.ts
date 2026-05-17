@@ -61,6 +61,7 @@ export const OVERLAY_CSS = `
     border: 1px solid #e5e7eb;
   }
   .livedev-screenshot img { display: block; width: 100%; }
+  .livedev-thumb img { max-width: 200px; max-height: 200px; width: auto; }
   .livedev-toast-stack {
     position: fixed; bottom: 72px; right: 16px;
     display: flex; flex-direction: column-reverse; gap: 8px;

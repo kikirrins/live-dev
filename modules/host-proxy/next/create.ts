@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isAllowed, loadWhitelist } from "@livedev/whitelist/server";
+import { isLocalBypass, LOCAL_BYPASS_USER_ID, isAllowed, loadWhitelist } from "@livedev/whitelist/server";
 import type { ScreenshotStore } from "@livedev/screenshots";
 
 export function createIssuesRoute(opts: {
@@ -17,9 +17,18 @@ export function createIssuesRoute(opts: {
 
   return {
     async POST(req) {
+      const bypass = isLocalBypass();
       const user = await opts.getUser(req);
-      if (!user) {
+      const userId = user?.id ?? (bypass ? LOCAL_BYPASS_USER_ID : null);
+      if (!userId) {
         return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
+      }
+
+      if (!bypass) {
+        const wl = loadWhitelist();
+        if (!isAllowed(userId, wl)) {
+          return NextResponse.json({ error: "not_whitelisted" }, { status: 403 });
+        }
       }
 
       const issuesUrl = process.env.LIVEDEV_ISSUES_URL;
@@ -68,7 +77,7 @@ export function createIssuesRoute(opts: {
         } else {
           try {
             const bytes = new Uint8Array(await screenshot.arrayBuffer());
-            const { id } = await opts.store.put(bytes, { ownerId: user.id, createdAt: Date.now() });
+            const { id } = await opts.store.put(bytes, { ownerId: userId, createdAt: Date.now() });
             meta.body = (meta.body ?? "") + "\n\n[View screenshot](" + buildViewerUrl(id) + ")";
           } catch (err) {
             screenshotWarning = "store_upload_failed";
@@ -82,7 +91,7 @@ export function createIssuesRoute(opts: {
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${serviceToken}`,
-          "X-Livedev-User": user.id,
+          "X-Livedev-User": userId,
         },
         body: JSON.stringify({ title: meta.title, body: meta.body, source: meta.source }),
       });

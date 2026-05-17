@@ -33,6 +33,8 @@ class LiveDevOverlay {
   private highlight: HTMLDivElement;
   private label: HTMLDivElement;
   private panel: HTMLDivElement | null = null;
+  private isCapturing = false;
+  private thumbUrl: string | null = null;
   private currentTarget: Element | null = null;
   private panelGeneration = 0;
   private toastStack: HTMLElement | null = null;
@@ -144,8 +146,8 @@ class LiveDevOverlay {
       ?? (document.elementFromPoint(e.clientX, e.clientY) as Element | null);
     if (realTarget && this.isOverlayNode(realTarget)) return;
 
-    // While a panel is open, ignore background page clicks entirely.
-    if (this.panel) return;
+    // While a panel is open or a capture is in progress, ignore background page clicks.
+    if (this.panel || this.isCapturing) return;
 
     // Prefer the mousemove-tracked target — :active transforms can shift
     // an element between mousedown and click, so e.target / elementFromPoint
@@ -160,10 +162,23 @@ class LiveDevOverlay {
     e.preventDefault();
     e.stopPropagation();
     e.stopImmediatePropagation();
-    this.openPanel(target);
+    this.captureThenOpen(target);
   };
 
-  private openPanel(el: Element) {
+  private async captureThenOpen(target: Element) {
+    this.highlight.style.display = "none";
+    this.label.style.display = "none";
+    this.isCapturing = true;
+    let blob: Blob | null = null;
+    try {
+      blob = await captureViewport();
+    } finally {
+      this.isCapturing = false;
+    }
+    this.openPanel(target, blob);
+  }
+
+  private openPanel(el: Element, screenshot: Blob | null) {
     ++this.panelGeneration;
     this.closePanel();
     this.highlight.style.display = "none";
@@ -180,9 +195,12 @@ class LiveDevOverlay {
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;");
 
+    this.thumbUrl = screenshot ? URL.createObjectURL(screenshot) : null;
+
     this.panel = document.createElement("div");
     this.panel.className = "livedev-panel";
     this.panel.innerHTML = `
+      ${this.thumbUrl ? `<div class="livedev-screenshot livedev-thumb"><img src="${this.thumbUrl}" /></div>` : ""}
       <h3>Describe the change</h3>
       <div class="meta">
         <div><span class="k">component:</span> ${info?.componentName ?? "unknown"}</div>
@@ -239,7 +257,6 @@ class LiveDevOverlay {
         ].filter(Boolean).join("\n");
 
         const { endpoint } = getConfig();
-        const elRect = el.getBoundingClientRect();
 
         this.closePanel();
 
@@ -255,16 +272,7 @@ class LiveDevOverlay {
           },
         };
 
-        const blob = await new Promise<Blob | null>((resolve) => {
-          requestAnimationFrame(() => {
-            captureViewport({
-              top: elRect.top,
-              left: elRect.left,
-              width: elRect.width,
-              height: elRect.height,
-            }).then(resolve).catch(() => resolve(null));
-          });
-        });
+        const blob = screenshot;
 
         console.log("[livedev] submitting issue to", endpoint);
         try {
@@ -314,11 +322,16 @@ class LiveDevOverlay {
           console.warn("[livedev] submit error:", err);
           this.showToast("error", "Live-Dev: network error");
         }
+        this.setActive(false);
       }
     });
   }
 
   private closePanel() {
+    if (this.thumbUrl) {
+      URL.revokeObjectURL(this.thumbUrl);
+      this.thumbUrl = null;
+    }
     if (this.panel) {
       this.panel.remove();
       this.panel = null;
