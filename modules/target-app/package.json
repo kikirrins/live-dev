@@ -3,6 +3,9 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
+    "sync:overlay": "node -e \"require('fs').copyFileSync(require.resolve('@livedev/overlay-client/dist/livedev-overlay.js'), 'public/livedev-overlay.js')\"",
+    "predev": "pnpm --filter @livedev/overlay-client build && pnpm sync:overlay",
+    "prebuild": "pnpm --filter @livedev/overlay-client build && pnpm sync:overlay",
     "dev": "next dev -p 3000",
     "build": "next build",
     "start": "next start -p 3000",
