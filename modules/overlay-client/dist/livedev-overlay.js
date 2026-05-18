@@ -3,7 +3,7 @@ var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { en
 var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
 
 // browser/src/capture.ts
-async function captureViewport(highlight) {
+async function captureViewport() {
   let stream = null;
   try {
     stream = await navigator.mediaDevices.getDisplayMedia({
@@ -28,22 +28,6 @@ async function captureViewport(highlight) {
     canvas.height = video.videoHeight;
     const ctx = canvas.getContext("2d");
     ctx.drawImage(video, 0, 0);
-    if (highlight) {
-      const scaleX = canvas.width / window.innerWidth;
-      const scaleY = canvas.height / window.innerHeight;
-      const x = highlight.left * scaleX;
-      const y = highlight.top * scaleY;
-      const w = highlight.width * scaleX;
-      const h = highlight.height * scaleY;
-      ctx.strokeStyle = "rgba(37,99,235,0.95)";
-      ctx.lineWidth = 3;
-      ctx.fillStyle = "rgba(37,99,235,0.12)";
-      ctx.fillRect(x, y, w, h);
-      ctx.strokeRect(x, y, w, h);
-      ctx.fillStyle = "rgba(37,99,235,0.95)";
-      ctx.font = `bold ${Math.max(11, 13 * scaleX)}px sans-serif`;
-      ctx.fillText("clicked here", Math.max(0, x), Math.max(12 * scaleY, y - 6 * scaleY));
-    }
     return await new Promise((resolve) => {
       canvas.toBlob((blob) => resolve(blob), "image/png");
     });
@@ -154,7 +138,19 @@ function extractSourceInfo(node) {
     if (src) {
       const [fileName, lineStr] = src.split(":");
       const lineNumber = parseInt(lineStr ?? "0", 10);
-      const componentName2 = comp ?? "unknown";
+      let componentName2 = comp ?? null;
+      if (!componentName2) {
+        let walk2 = getFiberFromNodeOrAncestor(node);
+        while (walk2) {
+          const name = getComponentName(walk2);
+          if (name && isUserComponent(name)) {
+            componentName2 = name;
+            break;
+          }
+          walk2 = walk2.return;
+        }
+        componentName2 = componentName2 ?? "unknown";
+      }
       const domParents = [];
       let p2 = attrEl.parentElement;
       while (p2 && domParents.length < 8) {
@@ -215,7 +211,7 @@ function extractSourceInfo(node) {
     let fallbackFiber = fiber;
     while (fallbackFiber) {
       const name = getComponentName(fallbackFiber);
-      if (name && /^[A-Z]/.test(name)) {
+      if (name && isUserComponent(name)) {
         componentName = name;
         break;
       }
@@ -278,6 +274,12 @@ var OVERLAY_CSS = `
     word-break: break-all;
   }
   .livedev-panel .meta .k { color: #6b7280; }
+  .livedev-panel input.title {
+    width: 100%; margin-bottom: 8px;
+    border: 1px solid #d1d5db; border-radius: 8px; padding: 10px;
+    font: 500 13px -apple-system, system-ui, sans-serif;
+  }
+  .livedev-panel input.title:focus { outline: 2px solid #2563eb; outline-offset: 0; }
   .livedev-panel textarea {
     width: 100%; min-height: 90px; resize: vertical;
     border: 1px solid #d1d5db; border-radius: 8px; padding: 10px;
@@ -299,6 +301,7 @@ var OVERLAY_CSS = `
     border: 1px solid #e5e7eb;
   }
   .livedev-screenshot img { display: block; width: 100%; }
+  .livedev-thumb img { max-width: 200px; max-height: 200px; width: auto; }
   .livedev-toast-stack {
     position: fixed; bottom: 72px; right: 16px;
     display: flex; flex-direction: column-reverse; gap: 8px;
@@ -350,6 +353,8 @@ var LiveDevOverlay = class {
     __publicField(this, "highlight");
     __publicField(this, "label");
     __publicField(this, "panel", null);
+    __publicField(this, "isCapturing", false);
+    __publicField(this, "thumbUrl", null);
     __publicField(this, "currentTarget", null);
     __publicField(this, "panelGeneration", 0);
     __publicField(this, "toastStack", null);
@@ -383,12 +388,16 @@ var LiveDevOverlay = class {
     });
     __publicField(this, "onClick", (e) => {
       if (!this.active) return;
-      const target = e.target;
+      const realTarget = e.target ?? document.elementFromPoint(e.clientX, e.clientY);
+      if (realTarget && this.isOverlayNode(realTarget)) return;
+      if (this.panel || this.isCapturing) return;
+      const tracked = this.currentTarget && !this.isOverlayNode(this.currentTarget) ? this.currentTarget : null;
+      const target = tracked ?? document.elementFromPoint(e.clientX, e.clientY) ?? e.target;
       if (!target || this.isOverlayNode(target)) return;
       e.preventDefault();
       e.stopPropagation();
       e.stopImmediatePropagation();
-      this.openPanel(target);
+      this.captureThenOpen(target);
     });
     this.injectStyles();
     this.root = document.createElement("div");
@@ -446,7 +455,19 @@ var LiveDevOverlay = class {
     }
     return false;
   }
-  openPanel(el) {
+  async captureThenOpen(target) {
+    this.highlight.style.display = "none";
+    this.label.style.display = "none";
+    this.isCapturing = true;
+    let blob = null;
+    try {
+      blob = await captureViewport();
+    } finally {
+      this.isCapturing = false;
+    }
+    this.openPanel(target, blob);
+  }
+  openPanel(el, screenshot) {
     ++this.panelGeneration;
     this.closePanel();
     this.highlight.style.display = "none";
@@ -455,9 +476,11 @@ var LiveDevOverlay = class {
     const elementText = getDirectText(el).slice(0, 300);
     const safeText = elementText.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     const safeUrl = location.href.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    this.thumbUrl = screenshot ? URL.createObjectURL(screenshot) : null;
     this.panel = document.createElement("div");
     this.panel.className = "livedev-panel";
     this.panel.innerHTML = `
+      ${this.thumbUrl ? `<div class="livedev-screenshot livedev-thumb"><img src="${this.thumbUrl}" /></div>` : ""}
       <h3>Describe the change</h3>
       <div class="meta">
         <div><span class="k">component:</span> ${info?.componentName ?? "unknown"}</div>
@@ -467,15 +490,17 @@ var LiveDevOverlay = class {
         ${safeText ? `<div><span class="k">text:</span> ${safeText}</div>` : ""}
         <div><span class="k">url:</span> ${safeUrl}</div>
       </div>
-      <textarea placeholder="e.g. make this button bigger and use our brand blue"></textarea>
+      <input type="text" class="title" placeholder="Short title (e.g. Make CTA button bigger)" />
+      <textarea placeholder="Describe the change in more detail (optional)"></textarea>
       <div class="actions">
         <button class="secondary" data-action="cancel">Cancel</button>
         <button class="primary" data-action="submit">Submit</button>
       </div>
     `;
     this.root.appendChild(this.panel);
+    const titleInput = this.panel.querySelector("input.title");
     const textarea = this.panel.querySelector("textarea");
-    textarea.focus();
+    titleInput.focus();
     this.panel.addEventListener("click", async (ev) => {
       const action = ev.target.closest("[data-action]") ? ev.target.closest("[data-action]").dataset.action : null;
       if (!action) return;
@@ -484,9 +509,10 @@ var LiveDevOverlay = class {
         return;
       }
       if (action === "submit") {
-        const prompt = textarea.value.trim();
-        if (!prompt) {
-          textarea.focus();
+        const title = titleInput.value.trim();
+        const description = textarea.value.trim();
+        if (!title) {
+          titleInput.focus();
           return;
         }
         const source = info ?? {
@@ -496,18 +522,17 @@ var LiveDevOverlay = class {
           parentChain: []
         };
         const body = [
-          `**Change request:** ${prompt}`,
-          "",
+          description ? `**Change request:** ${description}` : "",
+          description ? "" : "",
           `**Component:** \`${source.componentName}\` in \`${source.fileName}:${source.lineNumber}\``,
           `**Parent chain:** ${source.parentChain.join(" > ") || "\u2014"}`,
           `**Page:** ${location.href}`,
           elementText ? `**Element text:** ${elementText}` : ""
         ].filter(Boolean).join("\n");
         const { endpoint } = getConfig();
-        const elRect = el.getBoundingClientRect();
         this.closePanel();
         const meta = {
-          title: prompt.slice(0, 60),
+          title,
           body,
           source: {
             componentName: source.componentName,
@@ -517,16 +542,7 @@ var LiveDevOverlay = class {
             url: location.href
           }
         };
-        const blob = await new Promise((resolve) => {
-          requestAnimationFrame(() => {
-            captureViewport({
-              top: elRect.top,
-              left: elRect.left,
-              width: elRect.width,
-              height: elRect.height
-            }).then(resolve).catch(() => resolve(null));
-          });
-        });
+        const blob = screenshot;
         console.log("[livedev] submitting issue to", endpoint);
         try {
           let res;
@@ -556,6 +572,11 @@ var LiveDevOverlay = class {
             } else {
               this.showToast("success", "Issue created");
             }
+            if (data.screenshot_warning) {
+              const reason = String(data.screenshot_warning);
+              const detail = reason === "missing_app_origin" ? "host missing LIVEDEV_APP_ORIGIN" : reason === "no_store_configured" ? "host has no screenshot store" : reason === "store_upload_failed" ? "screenshot upload failed" : reason;
+              this.showToast("warn", `Screenshot not attached (${detail})`);
+            }
           } else {
             this.showToast("error", `Issue creation failed (${res.status})`);
           }
@@ -563,10 +584,15 @@ var LiveDevOverlay = class {
           console.warn("[livedev] submit error:", err);
           this.showToast("error", "Live-Dev: network error");
         }
+        this.setActive(false);
       }
     });
   }
   closePanel() {
+    if (this.thumbUrl) {
+      URL.revokeObjectURL(this.thumbUrl);
+      this.thumbUrl = null;
+    }
     if (this.panel) {
       this.panel.remove();
       this.panel = null;
